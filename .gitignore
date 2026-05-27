@@ -2,6 +2,7 @@
  
 
 **/*.zip
+.worktrees/
 
 # tsc
 
