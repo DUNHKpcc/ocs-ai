@@ -24,6 +24,8 @@ export { YKTProject } from './projects/yuketang';
 export { RenderScript } from './render';
 export * from './projects/ai-assistant/fingerprint';
 export * from './projects/ai-assistant/ai-answerer';
+export * from './projects/ai-assistant/recognizer';
+export * from './projects/ai-assistant/fill';
 export type {
 	AiFillTarget,
 	AiFillTargetType,

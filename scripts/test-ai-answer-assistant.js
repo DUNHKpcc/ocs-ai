@@ -47,4 +47,22 @@ assert.strictEqual(info.results[0].question, '1+1=?');
 assert.strictEqual(info.results[0].answer, 'B');
 assert.strictEqual(info.results[0].extra_data.ai, true);
 
+const root = document.createElement('div');
+root.innerHTML = `
+	<div class="question">1 + 1 = ?</div>
+	<label><input type="radio" name="q1">1</label>
+	<label><input type="radio" name="q1">2</label>
+`;
+const recognized = OCS.recognizeAiQuestion(root);
+assert.strictEqual(recognized.question, '1 + 1 = ?');
+assert.strictEqual(recognized.type, 'single');
+assert.deepStrictEqual(
+	recognized.options.map((option) => option.label),
+	['A', 'B']
+);
+
+const fillResult = OCS.fillAiAnswer(recognized, { answer: 'B', answers: ['B'], explanation: '' });
+assert.strictEqual(fillResult.ok, true);
+assert.strictEqual(root.querySelectorAll('input')[1].checked, true);
+
 console.log('AI assistant parser/fingerprint tests passed');
