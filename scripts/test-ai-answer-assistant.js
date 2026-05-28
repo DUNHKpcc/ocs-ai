@@ -76,5 +76,7 @@ const aiUserScript = fs.readFileSync(path.join(__dirname, '../dist/ocs.ai.user.j
 assert.match(aiUserScript, /@name\s+OCS AI答题助手/);
 assert.match(aiUserScript, /@match\s+\*:\/\/\*\/\*/);
 assert.match(aiUserScript, /@connect\s+\*/);
+assert.match(aiUserScript, /OCS-AI答题助手/);
+assert.match(aiUserScript, /CommonProject\.scripts\.aiAnswerAssistant\.namespace/);
 
 console.log('AI assistant parser/fingerprint tests passed');

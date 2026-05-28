@@ -18,6 +18,7 @@ const state: {
 	question?: AiQuestionContext;
 	answer?: ParsedAiAnswer;
 	error?: string;
+	status?: string;
 	loading: boolean;
 	cache: Map<string, ParsedAiAnswer>;
 } = {
@@ -69,13 +70,14 @@ function renderPanel(panel: any, script: Script) {
 	selectButton.onclick = () => {
 		startRegionPicker((_, path) => {
 			setRulePath(cfg, path);
+			state.status = '已保存题目区域。';
 			$message.success({ content: '已保存 AI 答题区域。' });
 			renderPanel(panel, script);
 		});
 	};
 
 	const startButton = $ui.button('开始监听');
-	startButton.onclick = () => {
+	startButton.onclick = async () => {
 		const root = resolveElementSelectorPath(getRulePath(cfg));
 		if (!root) {
 			$message.warn({ content: '未找到已保存的题目区域，请重新框选。' });
@@ -86,13 +88,18 @@ function renderPanel(panel: any, script: Script) {
 			await updateCurrentAnswer(root, script);
 			renderPanel(panel, script);
 		});
+		state.status = '已开始监听当前区域。';
+		await updateCurrentAnswer(root, script);
 		$message.success({ content: 'AI 答题助手已开始监听当前区域。' });
+		renderPanel(panel, script);
 	};
 
 	const clearButton = $ui.button('清空缓存');
 	clearButton.onclick = () => {
 		state.cache.clear();
+		state.status = 'AI 答案缓存已清空。';
 		$message.success({ content: 'AI 答案缓存已清空。' });
+		renderPanel(panel, script);
 	};
 
 	const copyButton = $ui.copy('复制答案', answerText || '暂无答案');
@@ -120,6 +127,7 @@ function renderPanel(panel: any, script: Script) {
 			h('div', [h('b', '题目：'), state.question?.question || '等待识别']),
 			h('div', [h('b', '答案：'), state.loading ? '请求中...' : answerText || '暂无']),
 			h('div', [h('b', '解析：'), state.answer?.explanation || '暂无']),
+			state.status ? h('div', { style: { color: '#047857' } }, state.status) : '',
 			state.error ? h('div', { className: 'error' }, state.error) : ''
 		])
 	);

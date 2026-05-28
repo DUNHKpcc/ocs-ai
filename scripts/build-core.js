@@ -150,7 +150,7 @@ async function createUserJs() {
 	aiOpts.metadata.description = 'OCS AI answer assistant for arbitrary websites with manual region selection.';
 	aiOpts.metadata.match = ['*://*/*'];
 	aiOpts.metadata.connect = ['*'];
-	aiOpts.entry = path.join(__dirname, '../packages/scripts/entry.common.js');
+	aiOpts.entry = path.join(__dirname, '../packages/scripts/entry.ai.js');
 	aiOpts.dist = path.join(distResolvedPath, 'ocs.ai.user.js');
 
 	console.log('createUserScript: ', aiOpts.metadata.name, aiOpts.dist);
