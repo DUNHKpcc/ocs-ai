@@ -103,7 +103,12 @@ function inferQuestionText(root: HTMLElement, optionTexts: string[]) {
 		.map(visibleText)
 		.filter(Boolean)
 		.filter((text) => {
-			if (seen.has(text) || optionTexts.includes(text)) {
+			if (
+				seen.has(text) ||
+				optionTexts.includes(text) ||
+				/^\d+[.、]?$/.test(text) ||
+				/^(?:单选题|多选题|判断题|填空题|问答题)(?:\s*[（(]\s*\d+\s*分\s*[）)])?$/.test(text)
+			) {
 				return false;
 			}
 			seen.add(text);
@@ -112,11 +117,13 @@ function inferQuestionText(root: HTMLElement, optionTexts: string[]) {
 		.map((text) => ({
 			text,
 			score:
-				(/[？?]/.test(text) ? 100 : 0) -
+				(/[？?]/.test(text) ? 100 : 0) +
+				(/[。.!！]$/.test(text) && text.length >= 6 ? 70 : 0) -
 				(/^(?:\d+[.、]\s*)?(?:单选题|多选题|判断题|填空题|问答题)(?:\s*[（(]\s*\d+\s*分\s*[）)])?/.test(text)
 					? 80
 					: 0) -
-				Math.min(text.length / 12, 30)
+				(text.length < 6 ? 60 : 0) -
+				Math.min(text.length / 18, 30)
 		}))
 		.sort((a, b) => b.score - a.score)
 		.map((item) => item.text);

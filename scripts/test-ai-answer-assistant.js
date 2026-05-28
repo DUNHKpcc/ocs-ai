@@ -150,6 +150,23 @@ assert.deepStrictEqual(
 	['A. 市场分析', 'B. 财务预测', 'C. 个人日记', 'D. 运营计划']
 );
 
+const judgmentRoot = document.createElement('section');
+judgmentRoot.innerHTML = `
+	<div class="question-meta">2.</div>
+	<div class="question-type">判断题</div>
+	<div class="stem">商业计划对于已有企业来说只是形式上的文件，没有实际作用。</div>
+	<div role="radiogroup">
+		<div role="radio">A. 正确</div>
+		<div role="radio">B. 错误</div>
+	</div>
+`;
+const judgmentRecognized = OCS.recognizeAiQuestion(judgmentRoot);
+assert.strictEqual(judgmentRecognized.question, '商业计划对于已有企业来说只是形式上的文件，没有实际作用。');
+assert.deepStrictEqual(
+	judgmentRecognized.options.map((option) => option.text),
+	['A. 正确', 'B. 错误']
+);
+
 const imageRoot = document.createElement('div');
 imageRoot.innerHTML = `
 	<div class="question">
