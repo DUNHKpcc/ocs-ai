@@ -19,6 +19,10 @@ export function fillAiAnswer(ctx: AiQuestionContext, answer: ParsedAiAnswer): { 
 				target.element.checked = true;
 				dispatchChange(target.element);
 				count++;
+			} else if (matched && target.element instanceof HTMLElement) {
+				target.element.click();
+				dispatchChange(target.element);
+				count++;
 			}
 		}
 		return count

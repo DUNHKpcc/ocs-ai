@@ -46,7 +46,8 @@ function createProviderConfig(cfg: any) {
 		temperature: Number(cfg.temperature || 0.2),
 		timeout: Number(cfg.timeout || 60),
 		systemPrompt: cfg.systemPrompt || DEFAULT_SYSTEM_PROMPT,
-		imageMode: cfg.imageMode || 'links'
+		imageMode: cfg.imageMode || 'links',
+		streamResponse: cfg.streamResponse !== false
 	};
 }
 
@@ -67,6 +68,9 @@ function renderPanel(panel: any, script: Script) {
 	const regionStatus = regionPath ? `已保存区域：${regionPath}` : '未选择题目区域';
 	const answerText = state.answer?.answers.length ? state.answer.answers.join('、') : state.answer?.answer || '';
 	const imageCount = state.question?.imageUrls.length || 0;
+	const optionText = state.question?.options.length
+		? state.question.options.map((option) => `${option.label}. ${option.text}`).join('；')
+		: '暂无';
 
 	const selectButton = $ui.button('框选题目区域');
 	selectButton.onclick = () => {
@@ -138,6 +142,7 @@ function renderPanel(panel: any, script: Script) {
 			]),
 			h('hr'),
 			h('div', [h('b', '题目：'), state.question?.question || '等待识别']),
+			h('div', [h('b', '选项：'), optionText]),
 			h('div', [h('b', '图片：'), imageCount ? `${imageCount} 张` : '暂无']),
 			h('div', [h('b', '答案：'), state.loading ? '请求中...' : answerText || '暂无']),
 			h('div', [h('b', '解析：'), state.answer?.explanation || '暂无']),
@@ -227,6 +232,11 @@ export function createAiAnswerAssistantScript() {
 					['vision', '多模态 image_url'],
 					['both', '链接 + image_url']
 				]
+			},
+			streamResponse: {
+				label: '流式响应',
+				attrs: { type: 'checkbox' },
+				defaultValue: true
 			},
 			temperature: {
 				label: 'Temperature',

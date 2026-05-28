@@ -69,6 +69,24 @@ export function normalizeChatCompletionsURL(baseURL: string) {
 	return `${trimmed}/chat/completions`;
 }
 
+export function parseOpenAIStreamContent(content: string) {
+	return content
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line.startsWith('data:'))
+		.map((line) => line.replace(/^data:\s*/, ''))
+		.filter((line) => line && line !== '[DONE]')
+		.map((line) => {
+			try {
+				const parsed = JSON.parse(line);
+				return parsed?.choices?.[0]?.delta?.content || parsed?.choices?.[0]?.message?.content || '';
+			} catch (error) {
+				return '';
+			}
+		})
+		.join('');
+}
+
 function createAiPrompt(ctx: AiQuestionContext, includeImageLinks: boolean) {
 	const optionsText = ctx.options.map((option) => `${option.label}. ${option.text}`).join('\n');
 	const imagesText = ctx.imageUrls.map((url, index) => `${index + 1}. ${url}`).join('\n');
@@ -105,13 +123,18 @@ export function createAiChatMessages(
 }
 
 export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionContext) {
+	const handler = config.streamResponse
+		? 'return (res)=>[' +
+		  'res.split(/\\r?\\n/).map(line=>line.trim()).filter(line=>line.startsWith("data:")).map(line=>line.replace(/^data:\\s*/,"")).filter(line=>line&&line!=="[DONE]").map(line=>{try{const parsed=JSON.parse(line);return parsed?.choices?.[0]?.delta?.content||parsed?.choices?.[0]?.message?.content||""}catch(e){return ""}}).join(""),' +
+		  'undefined]'
+		: 'return (res)=>[res?.choices?.[0]?.message?.content || res?.choices?.[0]?.text || JSON.stringify(res), undefined]';
 	const wrapper = {
 		name: 'AI',
 		url: normalizeChatCompletionsURL(config.baseURL),
 		homepage: '#',
 		method: 'post' as const,
 		type: 'GM_xmlhttpRequest' as const,
-		contentType: 'json' as const,
+		contentType: config.streamResponse ? ('text' as const) : ('json' as const),
 		headers: {
 			Authorization: `Bearer ${config.apiKey}`,
 			'Content-Type': 'application/json'
@@ -119,13 +142,16 @@ export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionC
 		data: {
 			model: config.model,
 			temperature: config.temperature,
+			stream: config.streamResponse,
 			messages: createAiChatMessages(config, ctx)
 		},
-		handler:
-			'return (res)=>[res?.choices?.[0]?.message?.content || res?.choices?.[0]?.text || JSON.stringify(res), undefined]'
+		handler
 	};
 
 	const infos = await defaultAnswerWrapperHandler([wrapper], {});
+	if (infos[0]?.error) {
+		throw new Error(infos[0].error);
+	}
 	const raw = infos[0]?.results?.[0]?.question || '';
 	return createAiSearchInformation(ctx, parseAiAnswerContent(raw));
 }

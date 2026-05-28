@@ -32,6 +32,15 @@ const fallback = OCS.parseAiAnswerContent('答案：A\n解析：选择第一项'
 assert.deepStrictEqual(fallback.answers, ['A']);
 assert.strictEqual(fallback.explanation, '选择第一项');
 
+const streamContent = OCS.parseOpenAIStreamContent(
+	[
+		'data: {"choices":[{"delta":{"content":"{\\"answer\\""}}]}',
+		'data: {"choices":[{"delta":{"content":" : \\"B\\"}"}}]}',
+		'data: [DONE]'
+	].join('\n\n')
+);
+assert.strictEqual(streamContent, '{"answer" : "B"}');
+
 const info = OCS.createAiSearchInformation(
 	{
 		question: '1+1=?',
@@ -61,6 +70,23 @@ assert.strictEqual(recognized.type, 'single');
 assert.deepStrictEqual(
 	recognized.options.map((option) => option.label),
 	['A', 'B']
+);
+
+const customChoiceRoot = document.createElement('div');
+customChoiceRoot.innerHTML = `
+	<h2>企业应该如何降低政策风险？</h2>
+	<div role="radiogroup">
+		<div role="radio" aria-checked="false">A. 忽视政策变化</div>
+		<div role="radio" aria-checked="false">B. 及时调整经营战略</div>
+		<div role="radio" aria-checked="false">C. 减少研发投入</div>
+		<div role="radio" aria-checked="false">D. 增加营销投入</div>
+	</div>
+`;
+const customRecognized = OCS.recognizeAiQuestion(customChoiceRoot);
+assert.strictEqual(customRecognized.type, 'single');
+assert.deepStrictEqual(
+	customRecognized.options.map((option) => option.text),
+	['A. 忽视政策变化', 'B. 及时调整经营战略', 'C. 减少研发投入', 'D. 增加营销投入']
 );
 
 const imageRoot = document.createElement('div');
@@ -115,6 +141,14 @@ assert.strictEqual(visionMessages[1].content[1].image_url.url, 'http://localhost
 const fillResult = OCS.fillAiAnswer(recognized, { answer: 'B', answers: ['B'], explanation: '' });
 assert.strictEqual(fillResult.ok, true);
 assert.strictEqual(root.querySelectorAll('input')[1].checked, true);
+
+let clickedRoleOption = false;
+customRecognized.fillTargets[1].element.onclick = () => {
+	clickedRoleOption = true;
+};
+const customFillResult = OCS.fillAiAnswer(customRecognized, { answer: 'B', answers: ['B'], explanation: '' });
+assert.strictEqual(customFillResult.ok, true);
+assert.strictEqual(clickedRoleOption, true);
 
 assert.strictEqual(typeof OCS.createElementSelectorPath, 'function');
 assert.strictEqual(typeof OCS.resolveElementSelectorPath, 'function');

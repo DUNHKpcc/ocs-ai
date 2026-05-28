@@ -115,27 +115,53 @@ function inferQuestionText(root: HTMLElement, optionTexts: string[]) {
 	return text.replace(/\s+/g, ' ').trim();
 }
 
+function createNativeChoiceTargets(root: HTMLElement) {
+	return Array.from(root.querySelectorAll<HTMLInputElement>('input[type="radio"],input[type="checkbox"]')).map(
+		(input) => ({
+			type: input.type === 'checkbox' ? ('checkbox' as const) : ('radio' as const),
+			element: input,
+			optionElement: input.closest<HTMLElement>('label') || input,
+			value: input.value
+		})
+	);
+}
+
+function createRoleChoiceTargets(root: HTMLElement) {
+	return Array.from(root.querySelectorAll<HTMLElement>('[role="radio"],[role="checkbox"]'))
+		.filter((element) => !element.querySelector('input[type="radio"],input[type="checkbox"]'))
+		.map((element) => ({
+			type: element.getAttribute('role') === 'checkbox' ? ('checkbox' as const) : ('radio' as const),
+			element,
+			optionElement: element,
+			value: element.getAttribute('aria-label') || element.getAttribute('data-value') || ''
+		}));
+}
+
+function createChoiceTargets(root: HTMLElement) {
+	const nativeTargets = createNativeChoiceTargets(root);
+	return nativeTargets.length ? nativeTargets : createRoleChoiceTargets(root);
+}
+
 export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
-	const inputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="radio"],input[type="checkbox"]'));
+	const choiceTargets = createChoiceTargets(root);
 	const textTargets = Array.from(
 		root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[type="text"],textarea')
 	);
 	const editableTargets = Array.from(root.querySelectorAll<HTMLElement>('[contenteditable="true"]'));
 	const imageUrls = collectImageUrls(root);
 
-	const options: AiOption[] = inputs.map((input, index) => {
+	const options: AiOption[] = choiceTargets.map((target, index) => {
 		const label = labels[index] || String(index + 1);
-		const optionElement = input.closest('label') || input;
-		const text = visibleText(optionElement) || input.value || label;
-		return { label, text, element: optionElement };
+		const text = visibleText(target.optionElement) || target.value || label;
+		return { label, text, element: target.optionElement };
 	});
 
 	const fillTargets: AiFillTarget[] = [
-		...inputs.map((input, index) => ({
-			type: input.type === 'checkbox' ? ('checkbox' as const) : ('radio' as const),
-			element: input,
+		...choiceTargets.map((target, index) => ({
+			type: target.type,
+			element: target.element,
 			label: labels[index] || String(index + 1),
-			text: options[index]?.text || input.value
+			text: options[index]?.text || target.value
 		})),
 		...textTargets.map((element) => ({
 			type: element.tagName.toLowerCase() === 'textarea' ? ('textarea' as const) : ('text' as const),
@@ -144,8 +170,8 @@ export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
 		...editableTargets.map((element) => ({ type: 'contenteditable' as const, element }))
 	];
 
-	const hasCheckbox = inputs.some((input) => input.type === 'checkbox');
-	const type = inputs.length
+	const hasCheckbox = choiceTargets.some((target) => target.type === 'checkbox');
+	const type = choiceTargets.length
 		? hasCheckbox
 			? 'multiple'
 			: 'single'

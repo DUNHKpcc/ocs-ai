@@ -38,6 +38,7 @@ export interface AiProviderConfig {
 	timeout: number;
 	systemPrompt: string;
 	imageMode: 'links' | 'vision' | 'both';
+	streamResponse: boolean;
 }
 
 export type AiSearchInformation = SearchInformation;
