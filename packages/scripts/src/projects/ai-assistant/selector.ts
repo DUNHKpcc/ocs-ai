@@ -22,6 +22,32 @@ export function resolveElementSelectorPath(path: string, root: Document | HTMLEl
 	return root.querySelector<HTMLElement>(path) || undefined;
 }
 
+function applyStyle(element: HTMLElement, styles: Partial<CSSStyleDeclaration>) {
+	Object.assign(element.style, styles);
+}
+
+function hasChoiceTargets(element: HTMLElement) {
+	return !!element.querySelector('input[type="radio"],input[type="checkbox"],[role="radio"],[role="checkbox"],label');
+}
+
+function hasQuestionText(element: HTMLElement) {
+	const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+	return /[？?]/.test(text) || !!element.querySelector('.question,[class*=question],[class*=title],h1,h2,h3,h4,p');
+}
+
+export function resolveQuestionContainer(element: HTMLElement) {
+	let current: HTMLElement | null = element;
+	let best: HTMLElement | undefined;
+	while (current && current !== document.body && current !== document.documentElement) {
+		if (hasQuestionText(current) && hasChoiceTargets(current)) {
+			best = current;
+			break;
+		}
+		current = current.parentElement;
+	}
+	return best || element;
+}
+
 function normalizeClientRect(startX: number, startY: number, endX: number, endY: number): DOMRect {
 	const left = Math.min(startX, endX);
 	const top = Math.min(startY, endY);
@@ -88,20 +114,33 @@ export function resolveElementFromClientRect(rect: DOMRect, root: Document | HTM
 		.sort((a, b) => b.area - a.area)
 		.map(({ element }) => element);
 	if (contained.length) {
-		return commonAncestor(contained);
+		const selected = commonAncestor(contained);
+		return selected ? resolveQuestionContainer(selected) : undefined;
 	}
 
-	return candidates.sort((a, b) => b.intersection - a.intersection)[0]?.element;
+	const selected = candidates.sort((a, b) => b.intersection - a.intersection)[0]?.element;
+	return selected ? resolveQuestionContainer(selected) : undefined;
 }
 
 export function startRegionPicker(onSelect: (element: HTMLElement, path: string) => void) {
 	const overlay = document.createElement('div');
 	overlay.className = 'ocs-ai-region-overlay';
+	applyStyle(overlay, {
+		position: 'fixed',
+		inset: '0',
+		zIndex: '2147483647',
+		pointerEvents: 'none'
+	});
 	document.documentElement.append(overlay);
 
 	let current: HTMLElement | undefined;
+	let previousOutline = '';
+	let previousOutlineOffset = '';
 	const cleanup = () => {
-		current?.classList.remove('ocs-ai-region-hover');
+		if (current) {
+			current.style.outline = previousOutline;
+			current.style.outlineOffset = previousOutlineOffset;
+		}
 		document.removeEventListener('mousemove', move, true);
 		document.removeEventListener('click', click, true);
 		overlay.remove();
@@ -111,15 +150,22 @@ export function startRegionPicker(onSelect: (element: HTMLElement, path: string)
 		if (!target || target === overlay || target.closest('.ocs-ai-region-overlay')) {
 			return;
 		}
-		current?.classList.remove('ocs-ai-region-hover');
+		if (current) {
+			current.style.outline = previousOutline;
+			current.style.outlineOffset = previousOutlineOffset;
+		}
 		current = target;
-		current.classList.add('ocs-ai-region-hover');
+		previousOutline = current.style.outline;
+		previousOutlineOffset = current.style.outlineOffset;
+		current.style.outline = '2px solid #2563eb';
+		current.style.outlineOffset = '2px';
 	};
 	const click = (event: MouseEvent) => {
 		event.preventDefault();
 		event.stopPropagation();
 		if (current) {
-			onSelect(current, createElementSelectorPath(current));
+			const selected = resolveQuestionContainer(current);
+			onSelect(selected, createElementSelectorPath(selected));
 		}
 		cleanup();
 	};
@@ -133,6 +179,21 @@ export function startRectRegionPicker(onSelect: (element: HTMLElement, path: str
 	const box = document.createElement('div');
 	overlay.className = 'ocs-ai-region-overlay';
 	box.className = 'ocs-ai-region-box';
+	applyStyle(overlay, {
+		position: 'fixed',
+		inset: '0',
+		zIndex: '2147483647',
+		pointerEvents: 'auto',
+		cursor: 'crosshair'
+	});
+	applyStyle(box, {
+		position: 'fixed',
+		display: 'none',
+		border: '2px solid #2563eb',
+		background: 'rgba(37, 99, 235, 0.12)',
+		boxSizing: 'border-box',
+		pointerEvents: 'none'
+	});
 	overlay.append(box);
 	document.documentElement.append(overlay);
 

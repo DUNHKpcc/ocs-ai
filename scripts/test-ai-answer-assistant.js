@@ -126,6 +126,8 @@ assert.strictEqual(!!OCS.CommonProject.scripts.aiAnswerAssistant, true);
 const card = document.createElement('section');
 const title = document.createElement('h2');
 const option = document.createElement('label');
+title.textContent = '这是一道测试题？';
+option.innerHTML = '<input type="radio">A. 选项';
 card.append(title, option);
 document.body.append(card);
 card.getBoundingClientRect = () => ({
@@ -164,6 +166,7 @@ const rectSelected = OCS.resolveElementFromClientRect(
 	document
 );
 assert.strictEqual(rectSelected, card);
+assert.strictEqual(OCS.resolveQuestionContainer(option), card);
 
 const aiUserScript = fs.readFileSync(path.join(__dirname, '../dist/ocs.ai.user.js'), 'utf8');
 assert.match(aiUserScript, /@name\s+OCS AI答题助手/);
