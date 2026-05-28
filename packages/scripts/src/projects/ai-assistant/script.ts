@@ -20,9 +20,11 @@ const state: {
 	error?: string;
 	status?: string;
 	loading: boolean;
+	requestVersion: number;
 	cache: Map<string, ParsedAiAnswer>;
 } = {
 	loading: false,
+	requestVersion: 0,
 	cache: new Map()
 };
 
@@ -123,6 +125,22 @@ function renderPanel(panel: any, script: Script) {
 		renderPanel(panel, script);
 	};
 
+	const clearRegionButton = $ui.button('清空所选区域');
+	clearRegionButton.onclick = () => {
+		state.observer?.disconnect();
+		state.observer = undefined;
+		state.requestVersion += 1;
+		state.fingerprint = undefined;
+		state.question = undefined;
+		state.answer = undefined;
+		state.error = undefined;
+		state.loading = false;
+		setRulePath(cfg, '');
+		state.status = '已清空所选题目区域。';
+		$message.success({ content: '已清空 AI 答题区域。' });
+		renderPanel(panel, script);
+	};
+
 	const clearButton = $ui.button('清空缓存');
 	clearButton.onclick = () => {
 		state.cache.clear();
@@ -149,6 +167,7 @@ function renderPanel(panel: any, script: Script) {
 				selectButton,
 				rectSelectButton,
 				startButton,
+				clearRegionButton,
 				clearButton,
 				copyButton,
 				fillButton
@@ -190,16 +209,25 @@ async function updateCurrentAnswer(root: HTMLElement, script: Script, onStateCha
 	}
 	state.answer = undefined;
 	state.loading = true;
+	const requestVersion = ++state.requestVersion;
 	onStateChange?.();
 	try {
 		const info = await requestAiAnswer(createProviderConfig(cfg), state.question);
+		if (state.requestVersion !== requestVersion) {
+			return;
+		}
 		state.answer = createAnswerFromSearch(info);
 		state.cache.set(fingerprint, state.answer);
 	} catch (error) {
+		if (state.requestVersion !== requestVersion) {
+			return;
+		}
 		state.answer = undefined;
 		state.error = (error as any)?.message || String(error);
 	} finally {
-		state.loading = false;
+		if (state.requestVersion === requestVersion) {
+			state.loading = false;
+		}
 	}
 }
 
