@@ -108,7 +108,7 @@ function renderPanel(panel: any, script: Script) {
 		state.observer = createRegionQuestionObserver(
 			resolveRoot,
 			async (root) => {
-				await updateCurrentAnswer(root, script);
+				await updateCurrentAnswer(root, script, () => renderPanel(panel, script));
 				renderPanel(panel, script);
 			},
 			500,
@@ -118,7 +118,7 @@ function renderPanel(panel: any, script: Script) {
 			}
 		);
 		state.status = '已开始监听当前区域。';
-		await updateCurrentAnswer(root, script);
+		await updateCurrentAnswer(root, script, () => renderPanel(panel, script));
 		$message.success({ content: 'AI 答题助手已开始监听当前区域。' });
 		renderPanel(panel, script);
 	};
@@ -165,7 +165,7 @@ function renderPanel(panel: any, script: Script) {
 	);
 }
 
-async function updateCurrentAnswer(root: HTMLElement, script: Script) {
+async function updateCurrentAnswer(root: HTMLElement, script: Script, onStateChange?: () => void) {
 	const cfg = script.cfg as any;
 	state.error = undefined;
 	state.question = recognizeAiQuestion(root);
@@ -177,14 +177,20 @@ async function updateCurrentAnswer(root: HTMLElement, script: Script) {
 	const cached = state.cache.get(fingerprint);
 	if (cached) {
 		state.answer = cached;
+		state.loading = false;
+		onStateChange?.();
 		return;
 	}
 	if (!cfg.baseURL || !cfg.apiKey || !cfg.model) {
 		state.answer = undefined;
+		state.loading = false;
 		state.error = '请先配置 OpenAI 兼容接口、API Key 和模型。';
+		onStateChange?.();
 		return;
 	}
+	state.answer = undefined;
 	state.loading = true;
+	onStateChange?.();
 	try {
 		const info = await requestAiAnswer(createProviderConfig(cfg), state.question);
 		state.answer = createAnswerFromSearch(info);
