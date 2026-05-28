@@ -143,6 +143,18 @@ async function createUserJs() {
 
 	console.log('createUserScript: ', commonOpts.metadata.name, commonOpts.dist);
 	await createUserScript(commonOpts);
+
+	/** 创建 AI 答题助手脚本 */
+	const aiOpts = createOptions();
+	aiOpts.metadata.name = 'OCS AI答题助手';
+	aiOpts.metadata.description = 'OCS AI answer assistant for arbitrary websites with manual region selection.';
+	aiOpts.metadata.match = ['*://*/*'];
+	aiOpts.metadata.connect = ['*'];
+	aiOpts.entry = path.join(__dirname, '../packages/scripts/entry.common.js');
+	aiOpts.dist = path.join(distResolvedPath, 'ocs.ai.user.js');
+
+	console.log('createUserScript: ', aiOpts.metadata.name, aiOpts.dist);
+	await createUserScript(aiOpts);
 }
 
 exports.default = series(cleanOutput, buildPackages, createUserJs);

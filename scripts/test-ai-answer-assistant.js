@@ -1,4 +1,6 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 require('browser-env')();
 const OCS = require('../dist/index.js');
 
@@ -69,5 +71,10 @@ assert.strictEqual(typeof OCS.createElementSelectorPath, 'function');
 assert.strictEqual(typeof OCS.resolveElementSelectorPath, 'function');
 assert.strictEqual(typeof OCS.createRegionQuestionObserver, 'function');
 assert.strictEqual(!!OCS.CommonProject.scripts.aiAnswerAssistant, true);
+
+const aiUserScript = fs.readFileSync(path.join(__dirname, '../dist/ocs.ai.user.js'), 'utf8');
+assert.match(aiUserScript, /@name\s+OCS AI答题助手/);
+assert.match(aiUserScript, /@match\s+\*:\/\/\*\/\*/);
+assert.match(aiUserScript, /@connect\s+\*/);
 
 console.log('AI assistant parser/fingerprint tests passed');
