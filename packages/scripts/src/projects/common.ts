@@ -16,6 +16,7 @@ import { enableCopy } from '../utils';
 import { SearchInfosElement } from '../elements/search.infos';
 import { RenderScript } from '../render';
 import { dropdownStyle } from '../utils/configs';
+import { createAiAnswerAssistantScript } from './ai-assistant/script';
 
 const TAB_WORK_RESULTS_KEY = 'common.work-results.results';
 
@@ -844,6 +845,7 @@ export const CommonProject = Project.create({
 				}
 			}
 		}),
+		aiAnswerAssistant: createAiAnswerAssistantScript(),
 		workResults: new Script({
 			name: '🔎 搜索结果',
 			matches: [['所有页面', /.*/]],

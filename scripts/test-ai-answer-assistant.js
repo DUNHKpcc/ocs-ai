@@ -65,4 +65,9 @@ const fillResult = OCS.fillAiAnswer(recognized, { answer: 'B', answers: ['B'], e
 assert.strictEqual(fillResult.ok, true);
 assert.strictEqual(root.querySelectorAll('input')[1].checked, true);
 
+assert.strictEqual(typeof OCS.createElementSelectorPath, 'function');
+assert.strictEqual(typeof OCS.resolveElementSelectorPath, 'function');
+assert.strictEqual(typeof OCS.createRegionQuestionObserver, 'function');
+assert.strictEqual(!!OCS.CommonProject.scripts.aiAnswerAssistant, true);
+
 console.log('AI assistant parser/fingerprint tests passed');

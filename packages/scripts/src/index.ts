@@ -26,6 +26,9 @@ export * from './projects/ai-assistant/fingerprint';
 export * from './projects/ai-assistant/ai-answerer';
 export * from './projects/ai-assistant/recognizer';
 export * from './projects/ai-assistant/fill';
+export * from './projects/ai-assistant/selector';
+export * from './projects/ai-assistant/observer';
+export * from './projects/ai-assistant/script';
 export type {
 	AiFillTarget,
 	AiFillTargetType,
