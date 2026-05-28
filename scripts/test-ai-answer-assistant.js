@@ -118,8 +118,52 @@ assert.strictEqual(root.querySelectorAll('input')[1].checked, true);
 
 assert.strictEqual(typeof OCS.createElementSelectorPath, 'function');
 assert.strictEqual(typeof OCS.resolveElementSelectorPath, 'function');
+assert.strictEqual(typeof OCS.resolveElementFromClientRect, 'function');
+assert.strictEqual(typeof OCS.startRectRegionPicker, 'function');
 assert.strictEqual(typeof OCS.createRegionQuestionObserver, 'function');
 assert.strictEqual(!!OCS.CommonProject.scripts.aiAnswerAssistant, true);
+
+const card = document.createElement('section');
+const title = document.createElement('h2');
+const option = document.createElement('label');
+card.append(title, option);
+document.body.append(card);
+card.getBoundingClientRect = () => ({
+	left: 10,
+	top: 10,
+	right: 210,
+	bottom: 150,
+	width: 200,
+	height: 140
+});
+title.getBoundingClientRect = () => ({
+	left: 20,
+	top: 20,
+	right: 190,
+	bottom: 60,
+	width: 170,
+	height: 40
+});
+option.getBoundingClientRect = () => ({
+	left: 20,
+	top: 70,
+	right: 190,
+	bottom: 120,
+	width: 170,
+	height: 50
+});
+const rectSelected = OCS.resolveElementFromClientRect(
+	{
+		left: 5,
+		top: 5,
+		right: 220,
+		bottom: 155,
+		width: 215,
+		height: 150
+	},
+	document
+);
+assert.strictEqual(rectSelected, card);
 
 const aiUserScript = fs.readFileSync(path.join(__dirname, '../dist/ocs.ai.user.js'), 'utf8');
 assert.match(aiUserScript, /@name\s+OCS AI答题助手/);

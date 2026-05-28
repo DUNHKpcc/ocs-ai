@@ -4,7 +4,7 @@ import { fillAiAnswer } from './fill';
 import { createQuestionFingerprint } from './fingerprint';
 import { createRegionQuestionObserver } from './observer';
 import { recognizeAiQuestion } from './recognizer';
-import { resolveElementSelectorPath, startRegionPicker } from './selector';
+import { resolveElementSelectorPath, startRectRegionPicker, startRegionPicker } from './selector';
 import { AiQuestionContext, ParsedAiAnswer } from './types';
 
 const DEFAULT_SYSTEM_PROMPT =
@@ -78,6 +78,16 @@ function renderPanel(panel: any, script: Script) {
 		});
 	};
 
+	const rectSelectButton = $ui.button('拖拽框选区域');
+	rectSelectButton.onclick = () => {
+		startRectRegionPicker((_, path) => {
+			setRulePath(cfg, path);
+			state.status = '已保存拖拽框选区域。';
+			$message.success({ content: '已保存 AI 拖拽框选区域。' });
+			renderPanel(panel, script);
+		});
+	};
+
 	const startButton = $ui.button('开始监听');
 	startButton.onclick = async () => {
 		const root = resolveElementSelectorPath(getRulePath(cfg));
@@ -120,6 +130,7 @@ function renderPanel(panel: any, script: Script) {
 			h('div', regionStatus),
 			h('div', { style: { marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
 				selectButton,
+				rectSelectButton,
 				startButton,
 				clearButton,
 				copyButton,
