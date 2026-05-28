@@ -191,13 +191,27 @@ function resolveNativeOptionElement(input: HTMLInputElement) {
 		return label;
 	}
 	if (!isChaoxingQuestionElement(input)) {
-		return input;
+		return resolveGenericOptionElement(input);
 	}
 	return (
 		input.closest<HTMLElement>('.answerBg,li')?.querySelector<HTMLElement>('.answer_p,.after,label:not(.before)') ||
 		input.closest<HTMLElement>('.answerBg,li') ||
 		input
 	);
+}
+
+function resolveGenericOptionElement(input: HTMLInputElement) {
+	let current = input.parentElement;
+	let depth = 0;
+	while (current && current !== document.body && current !== document.documentElement && depth < 4) {
+		const choiceCount = current.querySelectorAll('input[type="radio"],input[type="checkbox"]').length;
+		if (choiceCount <= 1 && visibleText(current)) {
+			return current;
+		}
+		current = current.parentElement;
+		depth++;
+	}
+	return input;
 }
 
 function createRoleChoiceTargets(root: HTMLElement) {
@@ -422,10 +436,55 @@ function collectChaoxingQuestionElements(root: HTMLElement) {
 	return Array.from(root.querySelectorAll<HTMLElement>('.questionLi,.TiMu')).filter(hasAnswerTargets);
 }
 
+function isLikelyQuestionStemText(text: string) {
+	const normalized = text.replace(/\s+/g, ' ').trim();
+	if (normalized.length < 6 || /^[A-Z](?:[.、．]|\s)/i.test(normalized)) {
+		return false;
+	}
+	return (
+		/[？?]/.test(normalized) ||
+		/下列|以下|哪|什么|是否|应|应该|使用|注解|正确|错误|设|则|求|计算|[。.!！]$/.test(normalized)
+	);
+}
+
+function hasPreviousQuestionStem(element: HTMLElement) {
+	let sibling = element.previousSibling;
+	let checked = 0;
+	while (sibling && checked < 8) {
+		const text =
+			sibling.nodeType === Node.ELEMENT_NODE
+				? visibleText(sibling as HTMLElement)
+				: sibling.textContent?.replace(/\s+/g, ' ').trim() || '';
+		if (isLikelyQuestionStemText(text)) {
+			return true;
+		}
+		sibling = sibling.previousSibling;
+		checked++;
+	}
+	return false;
+}
+
+function resolveNearbyQuestionContainer(root: HTMLElement) {
+	let current: HTMLElement | null = root;
+	while (current && current !== document.body && current !== document.documentElement) {
+		const parent: HTMLElement | null = current.parentElement;
+		if (parent && hasAnswerTargets(current) && hasPreviousQuestionStem(current)) {
+			return parent;
+		}
+		current = parent;
+	}
+	return undefined;
+}
+
 export function resolveActiveQuestionElement(root: HTMLElement) {
 	const chaoxingQuestionElement = root.closest<HTMLElement>('.questionLi,.TiMu');
 	if (chaoxingQuestionElement && !hasHiddenStyle(chaoxingQuestionElement)) {
 		return chaoxingQuestionElement;
+	}
+
+	const nearbyQuestionContainer = resolveNearbyQuestionContainer(root);
+	if (nearbyQuestionContainer && !hasHiddenStyle(nearbyQuestionContainer)) {
+		return nearbyQuestionContainer;
 	}
 
 	let fallback: HTMLElement | undefined;

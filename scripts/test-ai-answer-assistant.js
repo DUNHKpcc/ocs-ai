@@ -364,6 +364,27 @@ const customFillResult = OCS.fillAiAnswer(customRecognized, { answer: 'B', answe
 assert.strictEqual(customFillResult.ok, true);
 assert.strictEqual(clickedRoleOption, true);
 
+const unlabeledChoiceRoot = document.createElement('section');
+unlabeledChoiceRoot.innerHTML = `
+	<div class="stem">在Spring MVC中，若要将控制器方法的返回值直接作为响应体返回给客户端（而非跳转视图），应使用哪个注解？</div>
+	<div class="choice-list">
+		<div class="choice-row"><input type="radio" name="spring-q" value="A"><span>A. @ResponseBody</span></div>
+		<div class="choice-row"><input type="radio" name="spring-q" value="B"><span>B. @Responsebody</span></div>
+		<div class="choice-row"><input type="radio" name="spring-q" value="C"><span>C. @RequestBody</span></div>
+		<div class="choice-row"><input type="radio" name="spring-q" value="D"><span>D. @ModelAttribute</span></div>
+	</div>
+`;
+document.body.append(unlabeledChoiceRoot);
+const unlabeledChoiceRecognized = OCS.recognizeAiQuestion(unlabeledChoiceRoot.querySelector('.choice-list'));
+assert.strictEqual(
+	unlabeledChoiceRecognized.question,
+	'在Spring MVC中，若要将控制器方法的返回值直接作为响应体返回给客户端（而非跳转视图），应使用哪个注解？'
+);
+assert.deepStrictEqual(
+	unlabeledChoiceRecognized.options.map((option) => option.text),
+	['A. @ResponseBody', 'B. @Responsebody', 'C. @RequestBody', 'D. @ModelAttribute']
+);
+
 assert.strictEqual(typeof OCS.createElementSelectorPath, 'function');
 assert.strictEqual(typeof OCS.resolveElementSelectorPath, 'function');
 assert.strictEqual(typeof OCS.resolveElementFromClientRect, 'function');
