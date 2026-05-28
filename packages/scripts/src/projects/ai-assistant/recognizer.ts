@@ -99,6 +99,15 @@ export function collectImageUrls(root: HTMLElement) {
 
 function inferQuestionText(root: HTMLElement, optionTexts: string[]) {
 	const normalize = (text: string) => text.replace(/\s+/g, '').trim();
+	const cleanQuestionMeta = (text: string) =>
+		text
+			.replace(/^\s*\d+\s*[.、]\s*/, '')
+			.replace(
+				/^\s*[（(]\s*(?:单选题|多选题|判断题|填空题|问答题|名词解释|完形填空|阅读理解)\s*[,，]?\s*\d+(?:\.\d+)?\s*分\s*[）)]\s*/,
+				''
+			)
+			.replace(/^\s*[[(【（]\s*(?:单选题|多选题|判断题|填空题|问答题|名词解释|完形填空|阅读理解)\s*[\])】）]\s*/, '')
+			.trim();
 	const stripOptionLabel = (text: string) =>
 		text
 			.replace(/\s*选择\s*$/g, '')
@@ -117,10 +126,17 @@ function inferQuestionText(root: HTMLElement, optionTexts: string[]) {
 		const stripped = normalize(stripOptionLabel(text));
 		return optionSet.has(normalized) || optionSet.has(stripped);
 	};
+	const chaoxingTitle = root.querySelector<HTMLElement>('h3, .Zy_TItle .clearfix');
+	if (chaoxingTitle && root.closest('.questionLi, .TiMu')) {
+		const cleaned = cleanQuestionMeta(visibleText(chaoxingTitle));
+		if (cleaned && !isMetaText(cleaned) && !isOptionText(cleaned)) {
+			return cleaned;
+		}
+	}
 	const seen = new Set<string>();
 	const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))];
 	const candidates = elements
-		.map((element, index) => ({ element, index, text: visibleText(element) }))
+		.map((element, index) => ({ element, index, text: cleanQuestionMeta(visibleText(element)) }))
 		.filter(Boolean)
 		.filter(({ text }) => {
 			if (seen.has(text) || isOptionText(text) || isMetaText(text)) {
@@ -159,7 +175,11 @@ function createNativeChoiceTargets(root: HTMLElement) {
 		(input) => ({
 			type: input.type === 'checkbox' ? ('checkbox' as const) : ('radio' as const),
 			element: input,
-			optionElement: input.closest<HTMLElement>('label') || input,
+			optionElement:
+				input.closest<HTMLElement>('label') ||
+				input.closest<HTMLElement>('.answerBg,li')?.querySelector<HTMLElement>('.answer_p,.after,label:not(.before)') ||
+				input.closest<HTMLElement>('.answerBg,li') ||
+				input,
 			value: input.value
 		})
 	);

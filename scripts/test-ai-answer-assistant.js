@@ -166,6 +166,30 @@ assert.strictEqual(
 	'设集合A={1，2，3，4}上的关系R1={(1,4),(2,3),(3,2)}，R2={(2,1),(3,2),(4,3)}，则R1∘R2='
 );
 
+const chaoxingRoot = document.createElement('div');
+chaoxingRoot.className = 'questionLi';
+chaoxingRoot.innerHTML = `
+	<h3>
+		<span>1.</span>
+		<span>(单选题, 1分)</span>
+		设集合A={1，2，3，4}上的关系R1={(1,4),(2,3),(3,2)}，R2={(2,1),(3,2),(4,3)}，则R1∘R2=
+	</h3>
+	<div class="answerBg"><input type="radio" name="cx-q"><div class="answer_p">A {(2,4),(3,3),(4,2)}</div></div>
+	<div class="answerBg"><input type="radio" name="cx-q"><div class="answer_p">B {(1,3),(2,2),(3,1)}</div></div>
+	<div class="answerBg"><input type="radio" name="cx-q"><div class="answer_p">C {(1,1),(3,3),(4,2)}</div></div>
+	<div class="answerBg"><input type="radio" name="cx-q"><div class="answer_p">D 以上均不正确</div></div>
+`;
+const chaoxingOptionArea = chaoxingRoot.querySelector('.answerBg');
+const chaoxingRecognized = OCS.recognizeAiQuestion(chaoxingOptionArea);
+assert.strictEqual(
+	chaoxingRecognized.question,
+	'设集合A={1，2，3，4}上的关系R1={(1,4),(2,3),(3,2)}，R2={(2,1),(3,2),(4,3)}，则R1∘R2='
+);
+assert.deepStrictEqual(
+	chaoxingRecognized.options.map((option) => option.text),
+	['A {(2,4),(3,3),(4,2)}', 'B {(1,3),(2,2),(3,1)}', 'C {(1,1),(3,3),(4,2)}', 'D 以上均不正确']
+);
+
 const judgmentRoot = document.createElement('section');
 judgmentRoot.innerHTML = `
 	<div class="question-meta">2.</div>
