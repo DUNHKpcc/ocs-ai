@@ -130,6 +130,26 @@ assert.deepStrictEqual(
 	['A. 新选项', 'B. 新答案']
 );
 
+const siblingStemRoot = document.createElement('section');
+siblingStemRoot.innerHTML = `
+	<div class="question-meta">1. 单选题（8分）</div>
+	<div class="stem">商业计划通常不包括以下哪个内容？</div>
+	<div role="radiogroup" class="choice-group">
+		<div role="radio">A. 市场分析</div>
+		<div role="radio">B. 财务预测</div>
+		<div role="radio">C. 个人日记</div>
+		<div role="radio">D. 运营计划</div>
+	</div>
+`;
+document.body.append(siblingStemRoot);
+const siblingChoiceGroup = siblingStemRoot.querySelector('.choice-group');
+const siblingRecognized = OCS.recognizeAiQuestion(siblingChoiceGroup);
+assert.strictEqual(siblingRecognized.question, '商业计划通常不包括以下哪个内容？');
+assert.deepStrictEqual(
+	siblingRecognized.options.map((option) => option.text),
+	['A. 市场分析', 'B. 财务预测', 'C. 个人日记', 'D. 运营计划']
+);
+
 const imageRoot = document.createElement('div');
 imageRoot.innerHTML = `
 	<div class="question">

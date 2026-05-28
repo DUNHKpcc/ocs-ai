@@ -98,11 +98,28 @@ export function collectImageUrls(root: HTMLElement) {
 }
 
 function inferQuestionText(root: HTMLElement, optionTexts: string[]) {
-	const candidates = Array.from(
-		root.querySelectorAll<HTMLElement>('.question,[class*=question],[class*=title],h1,h2,h3,h4,p')
-	)
+	const seen = new Set<string>();
+	const candidates = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))]
 		.map(visibleText)
-		.filter(Boolean);
+		.filter(Boolean)
+		.filter((text) => {
+			if (seen.has(text) || optionTexts.includes(text)) {
+				return false;
+			}
+			seen.add(text);
+			return true;
+		})
+		.map((text) => ({
+			text,
+			score:
+				(/[？?]/.test(text) ? 100 : 0) -
+				(/^(?:\d+[.、]\s*)?(?:单选题|多选题|判断题|填空题|问答题)(?:\s*[（(]\s*\d+\s*分\s*[）)])?/.test(text)
+					? 80
+					: 0) -
+				Math.min(text.length / 12, 30)
+		}))
+		.sort((a, b) => b.score - a.score)
+		.map((item) => item.text);
 
 	if (candidates.length) {
 		return candidates[0];
@@ -288,7 +305,22 @@ function createSearchScopes(root: HTMLElement) {
 	return scopes;
 }
 
+function resolveQuestionTextContainer(element: HTMLElement, scope: HTMLElement) {
+	let current: HTMLElement | null = element;
+	while (current && current !== document.body && current !== document.documentElement) {
+		if (hasQuestionSignal(current) && hasAnswerTargets(current)) {
+			return current;
+		}
+		if (current === scope) {
+			break;
+		}
+		current = current.parentElement;
+	}
+	return element;
+}
+
 export function resolveActiveQuestionElement(root: HTMLElement) {
+	let fallback: HTMLElement | undefined;
 	for (const scope of createSearchScopes(root)) {
 		const layoutUsable = hasUsableLayout(scope);
 		const candidates = Array.from(collectQuestionCandidates(scope))
@@ -300,10 +332,16 @@ export function resolveActiveQuestionElement(root: HTMLElement) {
 			.sort((a, b) => b.score - a.score);
 
 		if (candidates[0]) {
-			return candidates[0].element;
+			const resolved = resolveQuestionTextContainer(candidates[0].element, scope);
+			if (!fallback) {
+				fallback = resolved;
+			}
+			if (hasQuestionSignal(resolved)) {
+				return resolved;
+			}
 		}
 	}
-	return root;
+	return fallback || root;
 }
 
 export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
