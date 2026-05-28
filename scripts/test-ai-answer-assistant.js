@@ -305,6 +305,7 @@ assert.match(aiUserScript, /@match\s+\*:\/\/\*\/\*/);
 assert.match(aiUserScript, /@connect\s+\*/);
 assert.match(aiUserScript, /OCS-AI答题助手/);
 assert.match(aiUserScript, /清空所选区域/);
+assert.match(aiUserScript, /overflowWrap/);
 assert.match(aiUserScript, /CommonProject\.scripts\.aiAnswerAssistant\.namespace/);
 
 console.log('AI assistant parser/fingerprint tests passed');

@@ -64,7 +64,35 @@ function createAnswerFromSearch(info: ReturnType<typeof createAiSearchInformatio
 	};
 }
 
+function applyPanelLayout(panel: any) {
+	Object.assign(panel.style, {
+		boxSizing: 'border-box',
+		maxWidth: 'min(620px, calc(100vw - 64px))',
+		overflowX: 'hidden'
+	});
+	Object.assign(panel.configsContainer.style, {
+		maxWidth: '100%',
+		overflowX: 'hidden'
+	});
+	const controls = Array.from(panel.configsContainer.querySelectorAll('input,select,textarea')) as HTMLElement[];
+	for (const element of controls) {
+		Object.assign(element.style, {
+			boxSizing: 'border-box',
+			maxWidth: '100%',
+			minWidth: '0'
+		});
+	}
+	const textareas = Array.from(panel.configsContainer.querySelectorAll('textarea')) as HTMLTextAreaElement[];
+	for (const textarea of textareas) {
+		Object.assign(textarea.style, {
+			resize: 'vertical',
+			minHeight: '54px'
+		});
+	}
+}
+
 function renderPanel(panel: any, script: Script) {
+	applyPanelLayout(panel);
 	const cfg = script.cfg as any;
 	const regionPath = getRulePath(cfg);
 	const regionStatus = regionPath ? `已保存区域：${regionPath}` : '未选择题目区域';
@@ -161,7 +189,7 @@ function renderPanel(panel: any, script: Script) {
 	};
 
 	panel.body.replaceChildren(
-		h('div', { className: 'ocs-ai-answer-card' }, [
+		h('div', { className: 'ocs-ai-answer-card', style: { overflowWrap: 'anywhere', wordBreak: 'break-word' } }, [
 			h('div', regionStatus),
 			h('div', { style: { marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
 				selectButton,
