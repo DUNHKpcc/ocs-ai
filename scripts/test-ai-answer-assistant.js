@@ -151,6 +151,21 @@ assert.deepStrictEqual(
 	['A. 市场分析', 'B. 财务预测', 'C. 个人日记', 'D. 运营计划']
 );
 
+const mathStemRoot = document.createElement('section');
+mathStemRoot.innerHTML = `
+	<div class="question-meta">1. (单选题, 1分)</div>
+	<div class="stem">设集合A={1，2，3，4}上的关系R1={(1,4),(2,3),(3,2)}，R2={(2,1),(3,2),(4,3)}，则R1∘R2=</div>
+	<label><input type="radio" name="math-q" value="A {(2,4),(3,3),(4,2)}">A {(2,4),(3,3),(4,2)}</label>
+	<label><input type="radio" name="math-q" value="B {(1,3),(2,2),(3,1)}">B {(1,3),(2,2),(3,1)}</label>
+	<label><input type="radio" name="math-q" value="C {(1,1),(3,3),(4,2)}">C {(1,1),(3,3),(4,2)}</label>
+	<label><input type="radio" name="math-q" value="D 以上均不正确">D 以上均不正确</label>
+`;
+const mathRecognized = OCS.recognizeAiQuestion(mathStemRoot);
+assert.strictEqual(
+	mathRecognized.question,
+	'设集合A={1，2，3，4}上的关系R1={(1,4),(2,3),(3,2)}，R2={(2,1),(3,2),(4,3)}，则R1∘R2='
+);
+
 const judgmentRoot = document.createElement('section');
 judgmentRoot.innerHTML = `
 	<div class="question-meta">2.</div>

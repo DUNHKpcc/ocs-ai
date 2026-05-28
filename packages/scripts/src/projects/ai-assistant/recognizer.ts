@@ -98,34 +98,49 @@ export function collectImageUrls(root: HTMLElement) {
 }
 
 function inferQuestionText(root: HTMLElement, optionTexts: string[]) {
+	const normalize = (text: string) => text.replace(/\s+/g, '').trim();
+	const stripOptionLabel = (text: string) =>
+		text
+			.replace(/\s*选择\s*$/g, '')
+			.replace(/^([A-Z])(?:[.、．]|\s)+/i, '')
+			.replace(/^([A-Z])(?:[.、．]|\s)+/i, '')
+			.trim();
+	const optionSet = new Set<string>();
+	for (const option of optionTexts) {
+		[option, stripOptionLabel(option)].filter(Boolean).forEach((item) => optionSet.add(normalize(item)));
+	}
+	const isMetaText = (text: string) =>
+		/^\d+[.、]?$/.test(text) ||
+		/^(?:\d+[.、]\s*)?[（(]?\s*(?:单选题|多选题|判断题|填空题|问答题)(?:\s*[,，]?\s*\d+\s*分)?\s*[）)]?$/.test(text);
+	const isOptionText = (text: string) => {
+		const normalized = normalize(text);
+		const stripped = normalize(stripOptionLabel(text));
+		return optionSet.has(normalized) || optionSet.has(stripped);
+	};
 	const seen = new Set<string>();
-	const candidates = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))]
-		.map(visibleText)
+	const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))];
+	const candidates = elements
+		.map((element, index) => ({ element, index, text: visibleText(element) }))
 		.filter(Boolean)
-		.filter((text) => {
-			if (
-				seen.has(text) ||
-				optionTexts.includes(text) ||
-				/^\d+[.、]?$/.test(text) ||
-				/^(?:单选题|多选题|判断题|填空题|问答题)(?:\s*[（(]\s*\d+\s*分\s*[）)])?$/.test(text)
-			) {
+		.filter(({ text }) => {
+			if (seen.has(text) || isOptionText(text) || isMetaText(text)) {
 				return false;
 			}
 			seen.add(text);
 			return true;
 		})
-		.map((text) => ({
+		.map(({ element, index, text }) => ({
 			text,
+			index,
 			score:
 				(/[？?]/.test(text) ? 100 : 0) +
 				(/[。.!！]$/.test(text) && text.length >= 6 ? 70 : 0) -
-				(/^(?:\d+[.、]\s*)?(?:单选题|多选题|判断题|填空题|问答题)(?:\s*[（(]\s*\d+\s*分\s*[）)])?/.test(text)
-					? 80
-					: 0) -
-				(text.length < 6 ? 60 : 0) -
-				Math.min(text.length / 18, 30)
+				(hasAnswerTargets(element) ? 60 : 0) +
+				(/[=＝]$/.test(text) ? 55 : 0) +
+				(/设|则|求|计算|下列|以下|哪|什么|是否|判断/.test(text) ? 30 : 0) -
+				(text.length < 3 ? 60 : 0)
 		}))
-		.sort((a, b) => b.score - a.score)
+		.sort((a, b) => b.score - a.score || a.index - b.index)
 		.map((item) => item.text);
 
 	if (candidates.length) {
