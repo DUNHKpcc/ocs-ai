@@ -21,7 +21,9 @@ export function fillAiAnswer(ctx: AiQuestionContext, answer: ParsedAiAnswer): { 
 				count++;
 			}
 		}
-		return count ? { ok: true, message: `filled ${count} choice target(s)` } : { ok: false, message: 'answer did not match choices' };
+		return count
+			? { ok: true, message: `filled ${count} choice target(s)` }
+			: { ok: false, message: 'answer did not match choices' };
 	}
 
 	const textTarget = ctx.fillTargets.find((target) => ['text', 'textarea', 'contenteditable'].includes(target.type));

@@ -8,11 +8,13 @@ function normalize(value: string) {
 }
 
 export function createQuestionFingerprint(
-	ctx: Pick<AiQuestionContext, 'question' | 'options' | 'type'> | {
-		question: string;
-		options: string[];
-		type: AiQuestionContext['type'];
-	}
+	ctx:
+		| Pick<AiQuestionContext, 'question' | 'options' | 'type'>
+		| {
+				question: string;
+				options: string[];
+				type: AiQuestionContext['type'];
+		  }
 ) {
 	const question = normalize(ctx.question);
 	const options = ctx.options

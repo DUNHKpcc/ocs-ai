@@ -85,7 +85,7 @@ export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionC
 			]
 		},
 		handler:
-			"return (res)=>[res?.choices?.[0]?.message?.content || res?.choices?.[0]?.text || JSON.stringify(res), undefined]"
+			'return (res)=>[res?.choices?.[0]?.message?.content || res?.choices?.[0]?.text || JSON.stringify(res), undefined]'
 	};
 
 	const infos = await defaultAnswerWrapperHandler([wrapper], {});

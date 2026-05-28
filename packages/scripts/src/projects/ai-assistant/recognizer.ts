@@ -29,7 +29,9 @@ function inferQuestionText(root: HTMLElement, optionTexts: string[]) {
 
 export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
 	const inputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="radio"],input[type="checkbox"]'));
-	const textTargets = Array.from(root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[type="text"],textarea'));
+	const textTargets = Array.from(
+		root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[type="text"],textarea')
+	);
 	const editableTargets = Array.from(root.querySelectorAll<HTMLElement>('[contenteditable="true"]'));
 
 	const options: AiOption[] = inputs.map((input, index) => {
@@ -63,7 +65,10 @@ export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
 		: 'unknown';
 
 	return {
-		question: inferQuestionText(root, options.map((option) => option.text)),
+		question: inferQuestionText(
+			root,
+			options.map((option) => option.text)
+		),
 		options,
 		type,
 		fillTargets
