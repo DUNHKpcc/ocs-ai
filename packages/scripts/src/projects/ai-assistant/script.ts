@@ -3,7 +3,7 @@ import { createAiSearchInformation, requestAiAnswer } from './ai-answerer';
 import { fillAiAnswer } from './fill';
 import { createQuestionFingerprint } from './fingerprint';
 import { createRegionQuestionObserver } from './observer';
-import { recognizeAiQuestion, resolveActiveQuestionElement } from './recognizer';
+import { recognizeAiQuestions, resolveActiveQuestionElement } from './recognizer';
 import { resolveElementSelectorPath, startRectRegionPicker, startRegionPicker } from './selector';
 import { AiQuestionContext, ParsedAiAnswer } from './types';
 
@@ -11,12 +11,20 @@ const DEFAULT_SYSTEM_PROMPT =
 	'You answer quiz questions. Return compact JSON only. For choice questions, answer with visible option labels when possible.';
 
 type ObserverHandle = ReturnType<typeof createRegionQuestionObserver>;
+type AiAnswerItem = {
+	question: AiQuestionContext;
+	fingerprint: string;
+	answer?: ParsedAiAnswer;
+	error?: string;
+	loading: boolean;
+};
 
 const state: {
 	observer?: ObserverHandle;
 	fingerprint?: string;
 	question?: AiQuestionContext;
 	answer?: ParsedAiAnswer;
+	items: AiAnswerItem[];
 	error?: string;
 	status?: string;
 	loading: boolean;
@@ -25,6 +33,7 @@ const state: {
 } = {
 	loading: false,
 	requestVersion: 0,
+	items: [],
 	cache: new Map()
 };
 
@@ -64,6 +73,10 @@ function createAnswerFromSearch(info: ReturnType<typeof createAiSearchInformatio
 	};
 }
 
+function answerLabel(answer?: ParsedAiAnswer) {
+	return answer?.answers.length ? answer.answers.join('、') : answer?.answer || '';
+}
+
 function applyPanelLayout(panel: any) {
 	Object.assign(panel.style, {
 		boxSizing: 'border-box',
@@ -96,11 +109,29 @@ function renderPanel(panel: any, script: Script) {
 	const cfg = script.cfg as any;
 	const regionPath = getRulePath(cfg);
 	const regionStatus = regionPath ? `已保存区域：${regionPath}` : '未选择题目区域';
-	const answerText = state.answer?.answers.length ? state.answer.answers.join('、') : state.answer?.answer || '';
+	const answerText =
+		state.items.length > 1
+			? state.items
+					.map((item, index) => `${index + 1}. ${item.loading ? '请求中...' : answerLabel(item.answer) || '暂无'}`)
+					.join('\n')
+			: answerLabel(state.answer);
 	const imageCount = state.question?.imageUrls.length || 0;
 	const optionText = state.question?.options.length
 		? state.question.options.map((option) => `${option.label}. ${option.text}`).join('；')
 		: '暂无';
+	const renderAnswerItem = (item: AiAnswerItem, index: number) =>
+		h('div', { style: { padding: '6px 0', borderTop: index ? '1px solid #e5e7eb' : '' } }, [
+			h('div', [h('b', `题目 ${index + 1}：`), item.question.question || '等待识别']),
+			h('div', [
+				h('b', '选项：'),
+				item.question.options.length
+					? item.question.options.map((option) => `${option.label}. ${option.text}`).join('；')
+					: '暂无'
+			]),
+			h('div', [h('b', '图片：'), item.question.imageUrls.length ? `${item.question.imageUrls.length} 张` : '暂无']),
+			h('div', [h('b', '答案：'), item.loading ? '请求中...' : answerLabel(item.answer) || '暂无']),
+			h('div', [h('b', '解析：'), item.answer?.explanation || item.error || '暂无'])
+		]);
 
 	const selectButton = $ui.button('框选题目区域');
 	selectButton.onclick = () => {
@@ -127,7 +158,10 @@ function renderPanel(panel: any, script: Script) {
 		const resolveSavedRoot = () => resolveElementSelectorPath(getRulePath(cfg));
 		const resolveRoot = () => {
 			const savedRoot = resolveSavedRoot();
-			return savedRoot ? resolveActiveQuestionElement(savedRoot) : undefined;
+			if (!savedRoot) {
+				return undefined;
+			}
+			return recognizeAiQuestions(savedRoot).length > 1 ? savedRoot : resolveActiveQuestionElement(savedRoot);
 		};
 		const root = resolveRoot();
 		if (!root) {
@@ -161,6 +195,7 @@ function renderPanel(panel: any, script: Script) {
 		state.fingerprint = undefined;
 		state.question = undefined;
 		state.answer = undefined;
+		state.items = [];
 		state.error = undefined;
 		state.loading = false;
 		setRulePath(cfg, '');
@@ -179,14 +214,33 @@ function renderPanel(panel: any, script: Script) {
 
 	const copyButton = $ui.copy('复制答案', answerText || '暂无答案');
 	const fillButton = $ui.button('填入答案');
-	fillButton.disabled = !state.question || !state.answer || cfg.mode !== 'fill';
+	fillButton.disabled = !state.items.some((item) => item.answer) || cfg.mode !== 'fill';
 	fillButton.onclick = () => {
-		if (!state.question || !state.answer) {
+		if (!state.items.length) {
 			return;
 		}
-		const result = fillAiAnswer(state.question, state.answer);
-		$message[result.ok ? 'success' : 'warn']({ content: result.message });
+		const results = state.items.filter((item) => item.answer).map((item) => fillAiAnswer(item.question, item.answer!));
+		const okCount = results.filter((result) => result.ok).length;
+		$message[okCount ? 'success' : 'warn']({
+			content: state.items.length > 1 ? `已填入 ${okCount}/${results.length} 道题。` : results[0]?.message || '暂无答案'
+		});
 	};
+
+	const detailNodes =
+		state.items.length > 1
+			? [
+					h('div', [
+						h('div', [h('b', '识别：'), `共 ${state.items.length} 道题`]),
+						...state.items.map(renderAnswerItem)
+					])
+			  ]
+			: [
+					h('div', [h('b', '题目：'), state.question?.question || '等待识别']),
+					h('div', [h('b', '选项：'), optionText]),
+					h('div', [h('b', '图片：'), imageCount ? `${imageCount} 张` : '暂无']),
+					h('div', [h('b', '答案：'), state.loading ? '请求中...' : answerText || '暂无']),
+					h('div', [h('b', '解析：'), state.answer?.explanation || '暂无'])
+			  ];
 
 	panel.body.replaceChildren(
 		h('div', { className: 'ocs-ai-answer-card', style: { overflowWrap: 'anywhere', wordBreak: 'break-word' } }, [
@@ -201,11 +255,7 @@ function renderPanel(panel: any, script: Script) {
 				fillButton
 			]),
 			h('hr'),
-			h('div', [h('b', '题目：'), state.question?.question || '等待识别']),
-			h('div', [h('b', '选项：'), optionText]),
-			h('div', [h('b', '图片：'), imageCount ? `${imageCount} 张` : '暂无']),
-			h('div', [h('b', '答案：'), state.loading ? '请求中...' : answerText || '暂无']),
-			h('div', [h('b', '解析：'), state.answer?.explanation || '暂无']),
+			...detailNodes,
 			state.status ? h('div', { style: { color: '#047857' } }, state.status) : '',
 			state.error ? h('div', { className: 'error' }, state.error) : ''
 		])
@@ -215,19 +265,24 @@ function renderPanel(panel: any, script: Script) {
 async function updateCurrentAnswer(root: HTMLElement, script: Script, onStateChange?: () => void) {
 	const cfg = script.cfg as any;
 	state.error = undefined;
-	state.question = recognizeAiQuestion(root);
-	const fingerprint = createQuestionFingerprint(state.question);
-	if (fingerprint === state.fingerprint && state.answer) {
+	const questions = recognizeAiQuestions(root);
+	const fingerprints = questions.map(createQuestionFingerprint);
+	const fingerprint = fingerprints.join('|');
+	if (fingerprint === state.fingerprint && state.items.length && state.items.every((item) => item.answer)) {
 		return;
 	}
 	state.fingerprint = fingerprint;
-	const cached = state.cache.get(fingerprint);
-	if (cached) {
-		state.answer = cached;
-		state.loading = false;
-		onStateChange?.();
-		return;
-	}
+	state.items = questions.map((question, index) => {
+		const itemFingerprint = fingerprints[index];
+		return {
+			question,
+			fingerprint: itemFingerprint,
+			answer: state.cache.get(itemFingerprint),
+			loading: false
+		};
+	});
+	state.question = state.items[0]?.question;
+	state.answer = state.items[0]?.answer;
 	if (!cfg.baseURL || !cfg.apiKey || !cfg.model) {
 		state.answer = undefined;
 		state.loading = false;
@@ -235,26 +290,45 @@ async function updateCurrentAnswer(root: HTMLElement, script: Script, onStateCha
 		onStateChange?.();
 		return;
 	}
-	state.answer = undefined;
+	const pendingItems = state.items.filter((item) => !item.answer);
+	if (!pendingItems.length) {
+		state.loading = false;
+		onStateChange?.();
+		return;
+	}
 	state.loading = true;
+	pendingItems.forEach((item) => {
+		item.loading = true;
+	});
 	const requestVersion = ++state.requestVersion;
 	onStateChange?.();
 	try {
-		const info = await requestAiAnswer(createProviderConfig(cfg), state.question);
-		if (state.requestVersion !== requestVersion) {
-			return;
-		}
-		state.answer = createAnswerFromSearch(info);
-		state.cache.set(fingerprint, state.answer);
-	} catch (error) {
-		if (state.requestVersion !== requestVersion) {
-			return;
-		}
-		state.answer = undefined;
-		state.error = (error as any)?.message || String(error);
+		await Promise.all(
+			pendingItems.map(async (item) => {
+				try {
+					const info = await requestAiAnswer(createProviderConfig(cfg), item.question);
+					if (state.requestVersion !== requestVersion) {
+						return;
+					}
+					item.answer = createAnswerFromSearch(info);
+					state.cache.set(item.fingerprint, item.answer);
+				} catch (error) {
+					if (state.requestVersion !== requestVersion) {
+						return;
+					}
+					item.error = (error as any)?.message || String(error);
+				} finally {
+					if (state.requestVersion === requestVersion) {
+						item.loading = false;
+					}
+				}
+			})
+		);
 	} finally {
 		if (state.requestVersion === requestVersion) {
 			state.loading = false;
+			state.answer = state.items[0]?.answer;
+			state.error = state.items.find((item) => item.error)?.error;
 		}
 	}
 }

@@ -7,6 +7,7 @@ const OCS = require('../dist/index.js');
 assert.strictEqual(typeof OCS.createQuestionFingerprint, 'function');
 assert.strictEqual(typeof OCS.parseAiAnswerContent, 'function');
 assert.strictEqual(typeof OCS.createAiSearchInformation, 'function');
+assert.strictEqual(typeof OCS.recognizeAiQuestions, 'function');
 
 const fingerprintA = OCS.createQuestionFingerprint({
 	question: ' 1 + 1 = ? ',
@@ -165,6 +166,33 @@ assert.strictEqual(judgmentRecognized.question, '商业计划对于已有企业�
 assert.deepStrictEqual(
 	judgmentRecognized.options.map((option) => option.text),
 	['A. 正确', 'B. 错误']
+);
+
+const multiQuestionRoot = document.createElement('div');
+multiQuestionRoot.innerHTML = `
+	<section class="question-card">
+		<h2>1 + 1 = ?</h2>
+		<label><input type="radio" name="multi-q1">A. 1</label>
+		<label><input type="radio" name="multi-q1">B. 2</label>
+	</section>
+	<section class="question-card">
+		<h2>太阳从东方升起。</h2>
+		<label><input type="radio" name="multi-q2">A. 正确</label>
+		<label><input type="radio" name="multi-q2">B. 错误</label>
+	</section>
+`;
+const multiRecognized = OCS.recognizeAiQuestions(multiQuestionRoot);
+assert.strictEqual(multiRecognized.length, 2);
+assert.deepStrictEqual(
+	multiRecognized.map((item) => item.question),
+	['1 + 1 = ?', '太阳从东方升起。']
+);
+assert.deepStrictEqual(
+	multiRecognized.map((item) => item.options.map((option) => option.text)),
+	[
+		['A. 1', 'B. 2'],
+		['A. 正确', 'B. 错误']
+	]
 );
 
 const imageRoot = document.createElement('div');

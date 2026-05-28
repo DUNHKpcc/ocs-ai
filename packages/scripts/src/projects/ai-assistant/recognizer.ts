@@ -326,6 +326,42 @@ function resolveQuestionTextContainer(element: HTMLElement, scope: HTMLElement) 
 	return element;
 }
 
+function compareDocumentOrder(a: HTMLElement, b: HTMLElement) {
+	if (a === b) {
+		return 0;
+	}
+	return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING ? 1 : -1;
+}
+
+function collectActiveQuestionElements(root: HTMLElement) {
+	const layoutUsable = hasUsableLayout(root);
+	const candidates = new Set<HTMLElement>();
+	for (const target of createChoiceTargets(root)) {
+		const resolved = resolveQuestionTextContainer(target.optionElement, root);
+		if (Number.isFinite(questionCandidateScore(resolved, layoutUsable))) {
+			candidates.add(resolved);
+		}
+	}
+	for (const element of Array.from(
+		root.querySelectorAll<HTMLElement>('input[type="text"],textarea,[contenteditable="true"]')
+	)) {
+		const resolved = resolveQuestionTextContainer(element, root);
+		if (Number.isFinite(questionCandidateScore(resolved, layoutUsable))) {
+			candidates.add(resolved);
+		}
+	}
+
+	const items = Array.from(candidates)
+		.filter((element) => isVisibleQuestionElement(element, layoutUsable))
+		.sort(compareDocumentOrder);
+	return items.filter(
+		(element) =>
+			!items.some(
+				(other) => other !== element && element.contains(other) && countChoiceGroups(element) > countChoiceGroups(other)
+			)
+	);
+}
+
 export function resolveActiveQuestionElement(root: HTMLElement) {
 	let fallback: HTMLElement | undefined;
 	for (const scope of createSearchScopes(root)) {
@@ -351,14 +387,13 @@ export function resolveActiveQuestionElement(root: HTMLElement) {
 	return fallback || root;
 }
 
-export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
-	const activeRoot = resolveActiveQuestionElement(root);
-	const choiceTargets = createChoiceTargets(activeRoot);
+function recognizeAiQuestionFromRoot(root: HTMLElement): AiQuestionContext {
+	const choiceTargets = createChoiceTargets(root);
 	const textTargets = Array.from(
-		activeRoot.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[type="text"],textarea')
+		root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[type="text"],textarea')
 	);
-	const editableTargets = Array.from(activeRoot.querySelectorAll<HTMLElement>('[contenteditable="true"]'));
-	const imageUrls = collectImageUrls(activeRoot);
+	const editableTargets = Array.from(root.querySelectorAll<HTMLElement>('[contenteditable="true"]'));
+	const imageUrls = collectImageUrls(root);
 
 	const options: AiOption[] = choiceTargets.map((target, index) => {
 		const label = labels[index] || String(index + 1);
@@ -391,7 +426,7 @@ export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
 
 	return {
 		question: inferQuestionText(
-			activeRoot,
+			root,
 			options.map((option) => option.text)
 		),
 		options,
@@ -399,4 +434,16 @@ export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
 		type,
 		fillTargets
 	};
+}
+
+export function recognizeAiQuestions(root: HTMLElement): AiQuestionContext[] {
+	const questionElements = collectActiveQuestionElements(root);
+	if (questionElements.length > 1) {
+		return questionElements.map(recognizeAiQuestionFromRoot);
+	}
+	return [recognizeAiQuestionFromRoot(questionElements[0] || resolveActiveQuestionElement(root))];
+}
+
+export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
+	return recognizeAiQuestions(root)[0];
 }
