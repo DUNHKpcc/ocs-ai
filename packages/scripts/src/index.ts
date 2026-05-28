@@ -22,6 +22,17 @@ export { IcveMoocProject } from './projects/icve';
 export { ICourseProject } from './projects/icourse';
 export { YKTProject } from './projects/yuketang';
 export { RenderScript } from './render';
+export * from './projects/ai-assistant/fingerprint';
+export * from './projects/ai-assistant/ai-answerer';
+export type {
+	AiFillTarget,
+	AiFillTargetType,
+	AiOption,
+	AiProviderConfig,
+	AiQuestionContext,
+	AiSearchInformation,
+	ParsedAiAnswer
+} from './projects/ai-assistant/types';
 
 export function definedProjects(): Project[] {
 	return [
