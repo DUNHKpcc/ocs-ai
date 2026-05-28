@@ -19,7 +19,7 @@ if (
 	].some((api) => typeof Reflect.get(globalThis, api) === 'undefined')
 ) {
 	const open = confirm(
-		`OCS AI答题助手不支持当前的脚本管理器（${GM_info.scriptHandler}）。` +
+		`DPCC-OCS-AI 不支持当前的脚本管理器（${GM_info.scriptHandler}）。` +
 			'请使用支持 GM_xmlhttpRequest 的脚本管理器，例如 “Scriptcat 脚本猫” 或者 “Tampermonkey 油猴”'
 	);
 
@@ -42,7 +42,7 @@ const infos = GM_info;
 			renderScript: RenderScript,
 			styles: [STYLE],
 			defaultPanelName: CommonProject.scripts.aiAnswerAssistant.namespace,
-			title: `OCS-AI答题助手-${infos.script.version}`
+			title: `DPCC-OCS-AI-${infos.script.version}`
 		},
 		updatePage: 'https://github.com/DUNHKpcc/ocs-ai-'
 	});

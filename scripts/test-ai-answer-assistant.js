@@ -300,10 +300,10 @@ assert.strictEqual(rectSelected, card);
 assert.strictEqual(OCS.resolveQuestionContainer(option), card);
 
 const aiUserScript = fs.readFileSync(path.join(__dirname, '../dist/ocs.ai.user.js'), 'utf8');
-assert.match(aiUserScript, /@name\s+OCS AI答题助手/);
+assert.match(aiUserScript, /@name\s+DPCC-OCS-AI/);
 assert.match(aiUserScript, /@match\s+\*:\/\/\*\/\*/);
 assert.match(aiUserScript, /@connect\s+\*/);
-assert.match(aiUserScript, /OCS-AI答题助手/);
+assert.match(aiUserScript, /DPCC-OCS-AI/);
 assert.match(aiUserScript, /清空所选区域/);
 assert.match(aiUserScript, /overflowWrap/);
 assert.match(aiUserScript, /CommonProject\.scripts\.aiAnswerAssistant\.namespace/);

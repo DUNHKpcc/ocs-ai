@@ -146,7 +146,7 @@ async function createUserJs() {
 
 	/** 创建 AI 答题助手脚本 */
 	const aiOpts = createOptions();
-	aiOpts.metadata.name = 'OCS AI答题助手';
+	aiOpts.metadata.name = 'DPCC-OCS-AI';
 	aiOpts.metadata.description = 'OCS AI answer assistant for arbitrary websites with manual region selection.';
 	aiOpts.metadata.match = ['*://*/*'];
 	aiOpts.metadata.connect = ['*'];
