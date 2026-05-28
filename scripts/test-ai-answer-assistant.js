@@ -63,6 +63,55 @@ assert.deepStrictEqual(
 	['A', 'B']
 );
 
+const imageRoot = document.createElement('div');
+imageRoot.innerHTML = `
+	<div class="question">
+		看图选择正确答案
+		<img src="/question.png">
+		<img data-src="https://cdn.example.com/lazy.webp">
+		<img srcset="/small.jpg 1x, /large.jpg 2x">
+		<span style="background-image: url('/bg.png')"></span>
+		<a href="https://cdn.example.com/ref.jpeg">参考图</a>
+	</div>
+	<label><input type="radio" name="img-q">A</label>
+`;
+const recognizedWithImages = OCS.recognizeAiQuestion(imageRoot);
+assert.deepStrictEqual(recognizedWithImages.imageUrls, [
+	'http://localhost/question.png',
+	'https://cdn.example.com/lazy.webp',
+	'http://localhost/small.jpg',
+	'http://localhost/large.jpg',
+	'http://localhost/bg.png',
+	'https://cdn.example.com/ref.jpeg'
+]);
+
+const imageFingerprintA = OCS.createQuestionFingerprint({
+	question: '看图选择正确答案',
+	options: [],
+	type: 'single',
+	imageUrls: ['https://cdn.example.com/a.png']
+});
+const imageFingerprintB = OCS.createQuestionFingerprint({
+	question: '看图选择正确答案',
+	options: [],
+	type: 'single',
+	imageUrls: ['https://cdn.example.com/b.png']
+});
+assert.notStrictEqual(imageFingerprintA, imageFingerprintB);
+
+const visionMessages = OCS.createAiChatMessages(
+	{
+		systemPrompt: 'answer',
+		imageMode: 'vision'
+	},
+	recognizedWithImages
+);
+assert.deepStrictEqual(visionMessages[0], { role: 'system', content: 'answer' });
+assert.strictEqual(Array.isArray(visionMessages[1].content), true);
+assert.strictEqual(visionMessages[1].content[0].type, 'text');
+assert.strictEqual(visionMessages[1].content[1].type, 'image_url');
+assert.strictEqual(visionMessages[1].content[1].image_url.url, 'http://localhost/question.png');
+
 const fillResult = OCS.fillAiAnswer(recognized, { answer: 'B', answers: ['B'], explanation: '' });
 assert.strictEqual(fillResult.ok, true);
 assert.strictEqual(root.querySelectorAll('input')[1].checked, true);

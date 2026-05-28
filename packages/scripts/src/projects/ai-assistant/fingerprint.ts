@@ -9,11 +9,12 @@ function normalize(value: string) {
 
 export function createQuestionFingerprint(
 	ctx:
-		| Pick<AiQuestionContext, 'question' | 'options' | 'type'>
+		| (Pick<AiQuestionContext, 'question' | 'options' | 'type'> & Partial<Pick<AiQuestionContext, 'imageUrls'>>)
 		| {
 				question: string;
 				options: string[];
 				type: AiQuestionContext['type'];
+				imageUrls?: string[];
 		  }
 ) {
 	const question = normalize(ctx.question);
@@ -25,5 +26,6 @@ export function createQuestionFingerprint(
 			return `${normalize(option.label)}=${normalize(option.text)}`;
 		})
 		.join('|');
-	return `${ctx.type || 'unknown'}::${question}::${options}`;
+	const images = (ctx.imageUrls || []).map(normalize).join('|');
+	return `${ctx.type || 'unknown'}::${question}::${options}::${images}`;
 }

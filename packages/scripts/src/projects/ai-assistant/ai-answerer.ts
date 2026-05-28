@@ -1,6 +1,21 @@
 import { defaultAnswerWrapperHandler, SearchInformation } from '@ocsjs/core';
 import { AiProviderConfig, AiQuestionContext, ParsedAiAnswer } from './types';
 
+type AiChatMessage = {
+	role: 'system' | 'user';
+	content:
+		| string
+		| Array<
+				| { type: 'text'; text: string }
+				| {
+						type: 'image_url';
+						image_url: {
+							url: string;
+						};
+				  }
+		  >;
+};
+
 export function parseAiAnswerContent(content: string): ParsedAiAnswer {
 	const trimmed = content.trim();
 	try {
@@ -54,17 +69,42 @@ export function normalizeChatCompletionsURL(baseURL: string) {
 	return `${trimmed}/chat/completions`;
 }
 
-export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionContext) {
+function createAiPrompt(ctx: AiQuestionContext, includeImageLinks: boolean) {
 	const optionsText = ctx.options.map((option) => `${option.label}. ${option.text}`).join('\n');
-	const prompt = [
+	const imagesText = ctx.imageUrls.map((url, index) => `${index + 1}. ${url}`).join('\n');
+	return [
 		`Question type: ${ctx.type}`,
 		`Question: ${ctx.question}`,
 		optionsText ? `Options:\n${optionsText}` : '',
+		includeImageLinks && imagesText ? `Image URLs:\n${imagesText}` : '',
 		'Return JSON only: {"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}'
 	]
 		.filter(Boolean)
 		.join('\n\n');
+}
 
+export function createAiChatMessages(
+	config: Pick<AiProviderConfig, 'systemPrompt'> & Partial<Pick<AiProviderConfig, 'imageMode'>>,
+	ctx: AiQuestionContext
+): AiChatMessage[] {
+	const imageMode = config.imageMode || 'links';
+	const includeImageLinks = imageMode === 'links' || imageMode === 'both';
+	const prompt = createAiPrompt(ctx, includeImageLinks);
+	const userContent =
+		(imageMode === 'vision' || imageMode === 'both') && ctx.imageUrls.length
+			? [
+					{ type: 'text' as const, text: prompt },
+					...ctx.imageUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))
+			  ]
+			: prompt;
+
+	return [
+		{ role: 'system', content: config.systemPrompt },
+		{ role: 'user', content: userContent }
+	];
+}
+
+export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionContext) {
 	const wrapper = {
 		name: 'AI',
 		url: normalizeChatCompletionsURL(config.baseURL),
@@ -79,10 +119,7 @@ export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionC
 		data: {
 			model: config.model,
 			temperature: config.temperature,
-			messages: [
-				{ role: 'system', content: config.systemPrompt },
-				{ role: 'user', content: prompt }
-			]
+			messages: createAiChatMessages(config, ctx)
 		},
 		handler:
 			'return (res)=>[res?.choices?.[0]?.message?.content || res?.choices?.[0]?.text || JSON.stringify(res), undefined]'

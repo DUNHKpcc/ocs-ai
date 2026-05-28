@@ -18,6 +18,7 @@ export interface AiFillTarget {
 export interface AiQuestionContext {
 	question: string;
 	options: AiOption[];
+	imageUrls: string[];
 	type: QuestionTypes | 'unknown';
 	fillTargets: AiFillTarget[];
 }
@@ -36,6 +37,7 @@ export interface AiProviderConfig {
 	temperature: number;
 	timeout: number;
 	systemPrompt: string;
+	imageMode: 'links' | 'vision' | 'both';
 }
 
 export type AiSearchInformation = SearchInformation;

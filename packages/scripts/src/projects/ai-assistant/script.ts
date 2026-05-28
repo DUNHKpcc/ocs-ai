@@ -45,7 +45,8 @@ function createProviderConfig(cfg: any) {
 		model: cfg.model,
 		temperature: Number(cfg.temperature || 0.2),
 		timeout: Number(cfg.timeout || 60),
-		systemPrompt: cfg.systemPrompt || DEFAULT_SYSTEM_PROMPT
+		systemPrompt: cfg.systemPrompt || DEFAULT_SYSTEM_PROMPT,
+		imageMode: cfg.imageMode || 'links'
 	};
 }
 
@@ -65,6 +66,7 @@ function renderPanel(panel: any, script: Script) {
 	const regionPath = getRulePath(cfg);
 	const regionStatus = regionPath ? `已保存区域：${regionPath}` : '未选择题目区域';
 	const answerText = state.answer?.answers.length ? state.answer.answers.join('、') : state.answer?.answer || '';
+	const imageCount = state.question?.imageUrls.length || 0;
 
 	const selectButton = $ui.button('框选题目区域');
 	selectButton.onclick = () => {
@@ -125,6 +127,7 @@ function renderPanel(panel: any, script: Script) {
 			]),
 			h('hr'),
 			h('div', [h('b', '题目：'), state.question?.question || '等待识别']),
+			h('div', [h('b', '图片：'), imageCount ? `${imageCount} 张` : '暂无']),
 			h('div', [h('b', '答案：'), state.loading ? '请求中...' : answerText || '暂无']),
 			h('div', [h('b', '解析：'), state.answer?.explanation || '暂无']),
 			state.status ? h('div', { style: { color: '#047857' } }, state.status) : '',
@@ -203,6 +206,16 @@ export function createAiAnswerAssistantScript() {
 			model: {
 				label: '模型',
 				defaultValue: ''
+			},
+			imageMode: {
+				label: '图片发送方式',
+				tag: 'select',
+				defaultValue: 'links',
+				options: [
+					['links', '仅发送图片链接'],
+					['vision', '多模态 image_url'],
+					['both', '链接 + image_url']
+				]
 			},
 			temperature: {
 				label: 'Temperature',
