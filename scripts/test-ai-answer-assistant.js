@@ -89,6 +89,47 @@ assert.deepStrictEqual(
 	['A. 忽视政策变化', 'B. 及时调整经营战略', 'C. 减少研发投入', 'D. 增加营销投入']
 );
 
+const switchingRoot = document.createElement('div');
+switchingRoot.innerHTML = `
+	<section class="question-card previous" style="display: none;">
+		<h2>第一题旧题？</h2>
+		<label><input type="radio" name="switch-q">A. 旧选项</label>
+		<label><input type="radio" name="switch-q">B. 旧答案</label>
+	</section>
+	<section class="question-card current">
+		<h2>第二题新题？</h2>
+		<label><input type="radio" name="switch-q2">A. 新选项</label>
+		<label><input type="radio" name="switch-q2">B. 新答案</label>
+	</section>
+`;
+document.body.append(switchingRoot);
+const oldQuestionCard = switchingRoot.querySelector('.previous');
+const currentQuestionCard = switchingRoot.querySelector('.current');
+switchingRoot.getBoundingClientRect = () => ({
+	left: 0,
+	top: 0,
+	right: 400,
+	bottom: 300,
+	width: 400,
+	height: 300
+});
+currentQuestionCard.getBoundingClientRect = () => ({
+	left: 20,
+	top: 20,
+	right: 320,
+	bottom: 180,
+	width: 300,
+	height: 160
+});
+const activeQuestionCard = OCS.resolveActiveQuestionElement(oldQuestionCard);
+assert.strictEqual(activeQuestionCard, currentQuestionCard);
+const activeRecognized = OCS.recognizeAiQuestion(oldQuestionCard);
+assert.strictEqual(activeRecognized.question, '第二题新题？');
+assert.deepStrictEqual(
+	activeRecognized.options.map((option) => option.text),
+	['A. 新选项', 'B. 新答案']
+);
+
 const imageRoot = document.createElement('div');
 imageRoot.innerHTML = `
 	<div class="question">

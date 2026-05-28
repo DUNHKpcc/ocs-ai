@@ -142,13 +142,178 @@ function createChoiceTargets(root: HTMLElement) {
 	return nativeTargets.length ? nativeTargets : createRoleChoiceTargets(root);
 }
 
-export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
-	const choiceTargets = createChoiceTargets(root);
-	const textTargets = Array.from(
-		root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[type="text"],textarea')
+function hasHiddenStyle(element: HTMLElement) {
+	let current: HTMLElement | null = element;
+	const win = element.ownerDocument.defaultView;
+	while (current && current !== element.ownerDocument.documentElement) {
+		if (current.hidden) {
+			return true;
+		}
+		const style = win?.getComputedStyle(current);
+		if (
+			style &&
+			(style.display === 'none' ||
+				style.visibility === 'hidden' ||
+				style.visibility === 'collapse' ||
+				style.opacity === '0')
+		) {
+			return true;
+		}
+		current = current.parentElement;
+	}
+	return false;
+}
+
+function hasLayoutBox(element: HTMLElement) {
+	const rect = element.getBoundingClientRect();
+	if (rect.width > 0 && rect.height > 0) {
+		return true;
+	}
+	return Array.from(element.getClientRects()).some((item) => item.width > 0 && item.height > 0);
+}
+
+function hasUsableLayout(root: HTMLElement) {
+	return [root, ...Array.from(root.querySelectorAll<HTMLElement>('*'))].some(hasLayoutBox);
+}
+
+function isVisibleQuestionElement(element: HTMLElement, layoutUsable: boolean) {
+	if (hasHiddenStyle(element)) {
+		return false;
+	}
+	return layoutUsable ? hasLayoutBox(element) : !!visibleText(element);
+}
+
+function hasAnswerTargets(element: HTMLElement) {
+	return (
+		createChoiceTargets(element).length > 0 ||
+		!!element.querySelector('input[type="text"],textarea,[contenteditable="true"]')
 	);
-	const editableTargets = Array.from(root.querySelectorAll<HTMLElement>('[contenteditable="true"]'));
-	const imageUrls = collectImageUrls(root);
+}
+
+function hasQuestionSignal(element: HTMLElement) {
+	const text = visibleText(element);
+	return (
+		/[？?]/.test(text) ||
+		/单选题|多选题|判断题|填空题|问答题|题目/.test(text) ||
+		!!element.querySelector('.question,[class*=question],[class*=title],h1,h2,h3,h4,p')
+	);
+}
+
+function countChoiceGroups(element: HTMLElement) {
+	const groups = new Set<string>();
+	const nativeInputs = Array.from(
+		element.querySelectorAll<HTMLInputElement>('input[type="radio"],input[type="checkbox"]')
+	);
+	nativeInputs.forEach((input, index) => groups.add(input.name || `${input.type}-${index}`));
+	const roleGroups = element.querySelectorAll('[role="radiogroup"],[role="group"]');
+	roleGroups.forEach((group, index) => groups.add(`role-${index}-${group.textContent?.length || 0}`));
+	return Math.max(groups.size, nativeInputs.length ? 1 : 0, roleGroups.length ? 1 : 0);
+}
+
+function questionCandidateScore(element: HTMLElement, layoutUsable: boolean) {
+	if (!isVisibleQuestionElement(element, layoutUsable) || !hasAnswerTargets(element)) {
+		return -Infinity;
+	}
+
+	const text = visibleText(element);
+	if (!text || text.length < 2 || text.length > 4000) {
+		return -Infinity;
+	}
+
+	const choiceCount = createChoiceTargets(element).length;
+	const choiceGroupCount = countChoiceGroups(element);
+	const textTargetCount = element.querySelectorAll('input[type="text"],textarea,[contenteditable="true"]').length;
+	const rect = element.getBoundingClientRect();
+	const area = rect.width * rect.height;
+	let score = Math.min(choiceCount, 4) * 14 + textTargetCount * 12;
+
+	if (hasQuestionSignal(element)) {
+		score += 30;
+	}
+	if (/[？?]/.test(text)) {
+		score += 20;
+	}
+	if (/question|题|card|item|subject/i.test(element.className || '')) {
+		score += 8;
+	}
+	if (choiceCount >= 2 && choiceCount <= 8) {
+		score += 16;
+	}
+	if (choiceGroupCount > 1) {
+		score -= choiceGroupCount * 36;
+	}
+	if (layoutUsable && area > 0) {
+		score -= Math.log(area);
+	}
+	score -= Math.min(text.length / 250, 16);
+	return score;
+}
+
+function addCandidate(candidates: Set<HTMLElement>, element: HTMLElement, limitRoot: HTMLElement) {
+	let current: HTMLElement | null = element;
+	while (current && current !== document.body && current !== document.documentElement) {
+		candidates.add(current);
+		if (current === limitRoot) {
+			break;
+		}
+		current = current.parentElement;
+	}
+}
+
+function collectQuestionCandidates(scope: HTMLElement) {
+	const candidates = new Set<HTMLElement>([scope]);
+	for (const target of createChoiceTargets(scope)) {
+		addCandidate(candidates, target.optionElement, scope);
+	}
+	for (const element of Array.from(
+		scope.querySelectorAll<HTMLElement>(
+			'input[type="text"],textarea,[contenteditable="true"],.question,[class*=question],[class*=title],h1,h2,h3,h4,p'
+		)
+	)) {
+		addCandidate(candidates, element, scope);
+	}
+	return candidates;
+}
+
+function createSearchScopes(root: HTMLElement) {
+	const scopes: HTMLElement[] = [];
+	let current: HTMLElement | null = root;
+	while (current && current !== document.body && current !== document.documentElement && scopes.length < 5) {
+		scopes.push(current);
+		current = current.parentElement;
+	}
+	if (document.body && !scopes.includes(document.body)) {
+		scopes.push(document.body);
+	}
+	return scopes;
+}
+
+export function resolveActiveQuestionElement(root: HTMLElement) {
+	for (const scope of createSearchScopes(root)) {
+		const layoutUsable = hasUsableLayout(scope);
+		const candidates = Array.from(collectQuestionCandidates(scope))
+			.map((element) => ({
+				element,
+				score: questionCandidateScore(element, layoutUsable)
+			}))
+			.filter((item) => Number.isFinite(item.score))
+			.sort((a, b) => b.score - a.score);
+
+		if (candidates[0]) {
+			return candidates[0].element;
+		}
+	}
+	return root;
+}
+
+export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
+	const activeRoot = resolveActiveQuestionElement(root);
+	const choiceTargets = createChoiceTargets(activeRoot);
+	const textTargets = Array.from(
+		activeRoot.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input[type="text"],textarea')
+	);
+	const editableTargets = Array.from(activeRoot.querySelectorAll<HTMLElement>('[contenteditable="true"]'));
+	const imageUrls = collectImageUrls(activeRoot);
 
 	const options: AiOption[] = choiceTargets.map((target, index) => {
 		const label = labels[index] || String(index + 1);
@@ -181,7 +346,7 @@ export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
 
 	return {
 		question: inferQuestionText(
-			root,
+			activeRoot,
 			options.map((option) => option.text)
 		),
 		options,

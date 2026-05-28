@@ -3,7 +3,7 @@ import { createAiSearchInformation, requestAiAnswer } from './ai-answerer';
 import { fillAiAnswer } from './fill';
 import { createQuestionFingerprint } from './fingerprint';
 import { createRegionQuestionObserver } from './observer';
-import { recognizeAiQuestion } from './recognizer';
+import { recognizeAiQuestion, resolveActiveQuestionElement } from './recognizer';
 import { resolveElementSelectorPath, startRectRegionPicker, startRegionPicker } from './selector';
 import { AiQuestionContext, ParsedAiAnswer } from './types';
 
@@ -94,7 +94,11 @@ function renderPanel(panel: any, script: Script) {
 
 	const startButton = $ui.button('开始监听');
 	startButton.onclick = async () => {
-		const resolveRoot = () => resolveElementSelectorPath(getRulePath(cfg));
+		const resolveSavedRoot = () => resolveElementSelectorPath(getRulePath(cfg));
+		const resolveRoot = () => {
+			const savedRoot = resolveSavedRoot();
+			return savedRoot ? resolveActiveQuestionElement(savedRoot) : undefined;
+		};
 		const root = resolveRoot();
 		if (!root) {
 			$message.warn({ content: '未找到已保存的题目区域，请重新框选。' });
