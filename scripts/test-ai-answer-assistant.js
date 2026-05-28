@@ -157,6 +157,25 @@ assert.strictEqual(typeof OCS.startRectRegionPicker, 'function');
 assert.strictEqual(typeof OCS.createRegionQuestionObserver, 'function');
 assert.strictEqual(!!OCS.CommonProject.scripts.aiAnswerAssistant, true);
 
+const dynamicRoot = document.createElement('div');
+dynamicRoot.innerHTML = '<section class="dynamic-card">第一题？</section>';
+document.body.append(dynamicRoot);
+const observedQuestions = [];
+const dynamicObserver = OCS.createRegionQuestionObserver(
+	() => dynamicRoot.querySelector('.dynamic-card'),
+	(element) => observedQuestions.push(element.textContent),
+	10,
+	{ observeRoot: dynamicRoot, intervalMs: 20 }
+);
+setTimeout(() => {
+	dynamicRoot.innerHTML = '<section class="dynamic-card">第二题？</section>';
+}, 20);
+setTimeout(() => {
+	dynamicObserver.disconnect();
+	assert.ok(observedQuestions.includes('第一题？'));
+	assert.ok(observedQuestions.includes('第二题？'));
+}, 80);
+
 const card = document.createElement('section');
 const title = document.createElement('h2');
 const option = document.createElement('label');

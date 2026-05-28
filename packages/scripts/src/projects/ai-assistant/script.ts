@@ -94,16 +94,25 @@ function renderPanel(panel: any, script: Script) {
 
 	const startButton = $ui.button('开始监听');
 	startButton.onclick = async () => {
-		const root = resolveElementSelectorPath(getRulePath(cfg));
+		const resolveRoot = () => resolveElementSelectorPath(getRulePath(cfg));
+		const root = resolveRoot();
 		if (!root) {
 			$message.warn({ content: '未找到已保存的题目区域，请重新框选。' });
 			return;
 		}
 		state.observer?.disconnect();
-		state.observer = createRegionQuestionObserver(root, async () => {
-			await updateCurrentAnswer(root, script);
-			renderPanel(panel, script);
-		});
+		state.observer = createRegionQuestionObserver(
+			resolveRoot,
+			async (root) => {
+				await updateCurrentAnswer(root, script);
+				renderPanel(panel, script);
+			},
+			500,
+			{
+				observeRoot: document.body || document.documentElement,
+				intervalMs: 1000
+			}
+		);
 		state.status = '已开始监听当前区域。';
 		await updateCurrentAnswer(root, script);
 		$message.success({ content: 'AI 答题助手已开始监听当前区域。' });
