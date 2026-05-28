@@ -29,6 +29,30 @@ assert.strictEqual(parsed.answer, 'B');
 assert.strictEqual(parsed.explanation, 'Because 1 + 1 = 2.');
 assert.strictEqual(parsed.confidence, 0.9);
 
+const fencedJsonParsed = OCS.parseAiAnswerContent(
+	[
+		'```json',
+		'{"answer":"B","answers":["B"],"explanation":"按定义，R1∘R2={(1,3),(2,2),(3,1)}，即选项 B。","confidence":0.98}',
+		'```'
+	].join('\n')
+);
+assert.deepStrictEqual(fencedJsonParsed.answers, ['B']);
+assert.strictEqual(fencedJsonParsed.answer, 'B');
+assert.strictEqual(fencedJsonParsed.explanation, '按定义，R1∘R2={(1,3),(2,2),(3,1)}，即选项 B。');
+assert.strictEqual(fencedJsonParsed.confidence, 0.98);
+
+const looseFencedJsonParsed = OCS.parseAiAnswerContent(
+	[
+		'```json',
+		'{"answer":"B","answers":["B"],"explanation":"按定义，\\(R_1\\circ R_2\\)。\\n故选 B。","confidence":0.98}',
+		'```'
+	].join('\n')
+);
+assert.deepStrictEqual(looseFencedJsonParsed.answers, ['B']);
+assert.strictEqual(looseFencedJsonParsed.answer, 'B');
+assert.strictEqual(looseFencedJsonParsed.explanation, '按定义，\\(R_1\\circ R_2\\)。\n故选 B。');
+assert.strictEqual(looseFencedJsonParsed.confidence, 0.98);
+
 const fallback = OCS.parseAiAnswerContent('答案：A\n解析：选择第一项');
 assert.deepStrictEqual(fallback.answers, ['A']);
 assert.strictEqual(fallback.explanation, '选择第一项');
@@ -190,6 +214,45 @@ assert.deepStrictEqual(
 	['A {(2,4),(3,3),(4,2)}', 'B {(1,3),(2,2),(3,1)}', 'C {(1,1),(3,3),(4,2)}', 'D 以上均不正确']
 );
 
+const chaoxingRoleRoot = document.createElement('div');
+chaoxingRoleRoot.className = 'questionLi';
+chaoxingRoleRoot.innerHTML = `
+	<h3 class="mark_name colorDeep fontLabel workTextWrap">
+		<span>8.</span>
+		<span>(单选题, 1分)</span>
+		设集合A={1，2，3，4}上的关系为：
+		<img src="https://p.ananas.chaoxing.com/star3/origin/f19776b53e55f69500f9e032d064621f.png">
+	</h3>
+	<div class="stem_answer">
+		<div class="clearfix answerBg workTextWrap" role="radio" aria-label="A 自反性 选择" qtype="0" onclick="addChoice(this)">
+			<span class="num_option" data="A">A</span>
+			<div class="answer_p"><p>自反性</p></div>
+		</div>
+		<div class="clearfix answerBg workTextWrap" role="radio" aria-label="B 自反性、对称性 选择" qtype="0" onclick="addChoice(this)">
+			<span class="num_option" data="B">B</span>
+			<div class="answer_p"><p>自反性、对称性</p></div>
+		</div>
+		<div class="clearfix answerBg workTextWrap" role="radio" aria-label="C 自反性、反对称性 选择" qtype="0" onclick="addChoice(this)">
+			<span class="num_option" data="C">C</span>
+			<div class="answer_p"><p>自反性、反对称性</p></div>
+		</div>
+		<div class="clearfix answerBg workTextWrap" role="radio" aria-label="D 自反性、反对称性、传递性 选择" qtype="0" onclick="addChoice(this)">
+			<span class="num_option" data="D">D</span>
+			<div class="answer_p"><p>自反性、反对称性、传递性</p></div>
+		</div>
+	</div>
+`;
+const chaoxingRoleRecognized = OCS.recognizeAiQuestion(chaoxingRoleRoot);
+assert.strictEqual(chaoxingRoleRecognized.question, '设集合A={1，2，3，4}上的关系为：');
+assert.deepStrictEqual(
+	chaoxingRoleRecognized.options.map((option) => option.text),
+	['自反性', '自反性、对称性', '自反性、反对称性', '自反性、反对称性、传递性']
+);
+assert.deepStrictEqual(chaoxingRoleRecognized.imageUrls, [
+	'https://p.ananas.chaoxing.com/star3/origin/f19776b53e55f69500f9e032d064621f.png'
+]);
+assert.strictEqual(chaoxingRoleRecognized.fillTargets[0].element.getAttribute('role'), 'radio');
+
 const judgmentRoot = document.createElement('section');
 judgmentRoot.innerHTML = `
 	<div class="question-meta">2.</div>
@@ -232,6 +295,12 @@ assert.deepStrictEqual(
 		['A. 1', 'B. 2'],
 		['A. 正确', 'B. 错误']
 	]
+);
+const singleRecognizedFromMultiRoot = OCS.recognizeAiQuestion(multiQuestionRoot);
+assert.strictEqual(singleRecognizedFromMultiRoot.question, '1 + 1 = ?');
+assert.deepStrictEqual(
+	singleRecognizedFromMultiRoot.options.map((option) => option.text),
+	['A. 1', 'B. 2']
 );
 
 const imageRoot = document.createElement('div');
@@ -372,6 +441,8 @@ assert.match(aiUserScript, /@match\s+\*:\/\/\*\/\*/);
 assert.match(aiUserScript, /@connect\s+\*/);
 assert.match(aiUserScript, /DPCC-OCS-AI/);
 assert.match(aiUserScript, /清空所选区域/);
+assert.match(aiUserScript, /识别模式/);
+assert.match(aiUserScript, /多题识别/);
 assert.match(aiUserScript, /overflowWrap/);
 assert.match(aiUserScript, /CommonProject\.scripts\.aiAnswerAssistant\.namespace/);
 

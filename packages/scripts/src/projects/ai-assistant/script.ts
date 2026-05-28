@@ -3,7 +3,7 @@ import { createAiSearchInformation, requestAiAnswer } from './ai-answerer';
 import { fillAiAnswer } from './fill';
 import { createQuestionFingerprint } from './fingerprint';
 import { createRegionQuestionObserver } from './observer';
-import { recognizeAiQuestions, resolveActiveQuestionElement } from './recognizer';
+import { recognizeAiQuestion, recognizeAiQuestions, resolveActiveQuestionElement } from './recognizer';
 import { resolveElementSelectorPath, startRectRegionPicker, startRegionPicker } from './selector';
 import { AiQuestionContext, ParsedAiAnswer } from './types';
 
@@ -60,6 +60,14 @@ function createProviderConfig(cfg: any) {
 		imageMode: cfg.imageMode || 'links',
 		streamResponse: cfg.streamResponse !== false
 	};
+}
+
+function isMultipleQuestionMode(cfg: any) {
+	return cfg.questionMode === 'multiple';
+}
+
+function recognizeCurrentQuestions(root: HTMLElement, cfg: any) {
+	return isMultipleQuestionMode(cfg) ? recognizeAiQuestions(root) : [recognizeAiQuestion(root)];
 }
 
 function createAnswerFromSearch(info: ReturnType<typeof createAiSearchInformation>): ParsedAiAnswer {
@@ -161,7 +169,7 @@ function renderPanel(panel: any, script: Script) {
 			if (!savedRoot) {
 				return undefined;
 			}
-			return recognizeAiQuestions(savedRoot).length > 1 ? savedRoot : resolveActiveQuestionElement(savedRoot);
+			return isMultipleQuestionMode(cfg) ? savedRoot : resolveActiveQuestionElement(savedRoot);
 		};
 		const root = resolveRoot();
 		if (!root) {
@@ -265,7 +273,7 @@ function renderPanel(panel: any, script: Script) {
 async function updateCurrentAnswer(root: HTMLElement, script: Script, onStateChange?: () => void) {
 	const cfg = script.cfg as any;
 	state.error = undefined;
-	const questions = recognizeAiQuestions(root);
+	const questions = recognizeCurrentQuestions(root, cfg);
 	const fingerprints = questions.map(createQuestionFingerprint);
 	const fingerprint = fingerprints.join('|');
 	if (fingerprint === state.fingerprint && state.items.length && state.items.every((item) => item.answer)) {
@@ -346,6 +354,15 @@ export function createAiAnswerAssistantScript() {
 				options: [
 					['display', '仅展示答案'],
 					['fill', '允许手动填入']
+				]
+			},
+			questionMode: {
+				label: '识别模式',
+				tag: 'select',
+				defaultValue: 'single',
+				options: [
+					['single', '单题识别'],
+					['multiple', '多题识别']
 				]
 			},
 			useUrlRule: {

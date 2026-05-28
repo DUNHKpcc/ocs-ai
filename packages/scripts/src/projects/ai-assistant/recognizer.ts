@@ -175,13 +175,28 @@ function createNativeChoiceTargets(root: HTMLElement) {
 		(input) => ({
 			type: input.type === 'checkbox' ? ('checkbox' as const) : ('radio' as const),
 			element: input,
-			optionElement:
-				input.closest<HTMLElement>('label') ||
-				input.closest<HTMLElement>('.answerBg,li')?.querySelector<HTMLElement>('.answer_p,.after,label:not(.before)') ||
-				input.closest<HTMLElement>('.answerBg,li') ||
-				input,
+			optionElement: resolveNativeOptionElement(input),
 			value: input.value
 		})
+	);
+}
+
+function isChaoxingQuestionElement(element: HTMLElement) {
+	return !!element.closest('.questionLi,.TiMu');
+}
+
+function resolveNativeOptionElement(input: HTMLInputElement) {
+	const label = input.closest<HTMLElement>('label');
+	if (label) {
+		return label;
+	}
+	if (!isChaoxingQuestionElement(input)) {
+		return input;
+	}
+	return (
+		input.closest<HTMLElement>('.answerBg,li')?.querySelector<HTMLElement>('.answer_p,.after,label:not(.before)') ||
+		input.closest<HTMLElement>('.answerBg,li') ||
+		input
 	);
 }
 
@@ -191,7 +206,9 @@ function createRoleChoiceTargets(root: HTMLElement) {
 		.map((element) => ({
 			type: element.getAttribute('role') === 'checkbox' ? ('checkbox' as const) : ('radio' as const),
 			element,
-			optionElement: element,
+			optionElement: isChaoxingQuestionElement(element)
+				? element.querySelector<HTMLElement>('.answer_p,.textDIV,.eidtDiv,.after,label:not(.before)') || element
+				: element,
 			value: element.getAttribute('aria-label') || element.getAttribute('data-value') || ''
 		}));
 }
@@ -397,7 +414,20 @@ function collectActiveQuestionElements(root: HTMLElement) {
 	);
 }
 
+function collectChaoxingQuestionElements(root: HTMLElement) {
+	const closest = root.closest<HTMLElement>('.questionLi,.TiMu');
+	if (closest) {
+		return [closest];
+	}
+	return Array.from(root.querySelectorAll<HTMLElement>('.questionLi,.TiMu')).filter(hasAnswerTargets);
+}
+
 export function resolveActiveQuestionElement(root: HTMLElement) {
+	const chaoxingQuestionElement = root.closest<HTMLElement>('.questionLi,.TiMu');
+	if (chaoxingQuestionElement && !hasHiddenStyle(chaoxingQuestionElement)) {
+		return chaoxingQuestionElement;
+	}
+
 	let fallback: HTMLElement | undefined;
 	for (const scope of createSearchScopes(root)) {
 		const layoutUsable = hasUsableLayout(scope);
@@ -472,6 +502,11 @@ function recognizeAiQuestionFromRoot(root: HTMLElement): AiQuestionContext {
 }
 
 export function recognizeAiQuestions(root: HTMLElement): AiQuestionContext[] {
+	const chaoxingQuestionElements = collectChaoxingQuestionElements(root);
+	if (chaoxingQuestionElements.length) {
+		return chaoxingQuestionElements.map(recognizeAiQuestionFromRoot);
+	}
+
 	const questionElements = collectActiveQuestionElements(root);
 	if (questionElements.length > 1) {
 		return questionElements.map(recognizeAiQuestionFromRoot);
@@ -480,5 +515,5 @@ export function recognizeAiQuestions(root: HTMLElement): AiQuestionContext[] {
 }
 
 export function recognizeAiQuestion(root: HTMLElement): AiQuestionContext {
-	return recognizeAiQuestions(root)[0];
+	return recognizeAiQuestionFromRoot(resolveActiveQuestionElement(root));
 }

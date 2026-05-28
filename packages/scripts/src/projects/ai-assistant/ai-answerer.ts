@@ -18,8 +18,29 @@ type AiChatMessage = {
 
 export function parseAiAnswerContent(content: string): ParsedAiAnswer {
 	const trimmed = content.trim();
+	for (const candidate of createJsonCandidates(trimmed)) {
+		const parsed = parseAiAnswerJson(candidate) || parseLooseAiAnswerJson(candidate);
+		if (parsed) {
+			return parsed;
+		}
+	}
+
+	const answerMatch = trimmed.match(/(?:^|\n)\s*(?:答案|answer)\s*[:：]\s*([A-Ha-h]|正确|错误|对|错|是|否|.+?)(?:\n|$)/i);
+	const explanationMatch = trimmed.match(/(?:^|\n)\s*(?:解析|explanation)\s*[:：]\s*([\s\S]*)/i);
+	const answer = (answerMatch?.[1] || trimmed.split('\n')[0] || '').trim();
+	return {
+		answer,
+		answers: answer ? answer.split(/[#,，、\s]+/).filter(Boolean) : [],
+		explanation: (explanationMatch?.[1] || '').trim()
+	};
+}
+
+function parseAiAnswerJson(content: string): ParsedAiAnswer | undefined {
 	try {
-		const parsed = JSON.parse(trimmed);
+		const parsed = JSON.parse(content);
+		if (!parsed || typeof parsed !== 'object') {
+			return undefined;
+		}
 		const answers = Array.isArray(parsed.answers)
 			? parsed.answers.map(String).filter(Boolean)
 			: parsed.answer
@@ -32,15 +53,113 @@ export function parseAiAnswerContent(content: string): ParsedAiAnswer {
 			confidence: typeof parsed.confidence === 'number' ? parsed.confidence : undefined
 		};
 	} catch (error) {
-		const answerMatch = trimmed.match(/(?:答案|answer)[:：]?\s*([A-Ha-h]|正确|错误|对|错|是|否|.+?)(?:\n|$)/i);
-		const explanationMatch = trimmed.match(/(?:解析|explanation)[:：]?\s*([\s\S]*)/i);
-		const answer = (answerMatch?.[1] || trimmed.split('\n')[0] || '').trim();
-		return {
-			answer,
-			answers: answer ? answer.split(/[#,，、\s]+/).filter(Boolean) : [],
-			explanation: (explanationMatch?.[1] || '').trim()
-		};
+		return undefined;
 	}
+}
+
+function parseLooseAiAnswerJson(content: string): ParsedAiAnswer | undefined {
+	const source = extractFirstJsonObject(content);
+	if (!source) {
+		return undefined;
+	}
+	const answer = readLooseJsonStringField(source, 'answer');
+	const explanation = readLooseJsonStringField(source, 'explanation') || '';
+	const answerItems = readLooseJsonStringArrayField(source, 'answers');
+	const confidenceMatch = source.match(/"confidence"\s*:\s*(-?\d+(?:\.\d+)?)/i);
+	const answers = answerItems.length ? answerItems : answer ? [answer] : [];
+	if (!answer && !answers.length && !explanation) {
+		return undefined;
+	}
+	return {
+		answer: answer || answers.join('#'),
+		answers,
+		explanation,
+		confidence: confidenceMatch ? Number(confidenceMatch[1]) : undefined
+	};
+}
+
+function readLooseJsonStringField(source: string, key: string) {
+	const pattern = new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 'i');
+	const match = source.match(pattern);
+	return match ? decodeLooseJsonString(match[1]) : '';
+}
+
+function readLooseJsonStringArrayField(source: string, key: string) {
+	const pattern = new RegExp(`"${key}"\\s*:\\s*\\[([\\s\\S]*?)\\]`, 'i');
+	const match = source.match(pattern);
+	if (!match) {
+		return [];
+	}
+	const items: string[] = [];
+	const itemPattern = /"((?:\\.|[^"\\])*)"/g;
+	let item: RegExpExecArray | null;
+	while ((item = itemPattern.exec(match[1]))) {
+		const value = decodeLooseJsonString(item[1]);
+		if (value) {
+			items.push(value);
+		}
+	}
+	return items;
+}
+
+function decodeLooseJsonString(value: string) {
+	return value
+		.replace(/\\u([0-9a-fA-F]{4})/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
+		.replace(/\\n/g, '\n')
+		.replace(/\\r/g, '\r')
+		.replace(/\\t/g, '\t')
+		.replace(/\\"/g, '"')
+		.replace(/\\\\/g, '\\');
+}
+
+function createJsonCandidates(content: string) {
+	const candidates = [content, unwrapMarkdownJsonFence(content)];
+	for (const item of [...candidates]) {
+		const jsonObject = extractFirstJsonObject(item);
+		if (jsonObject) {
+			candidates.push(jsonObject);
+		}
+	}
+	return Array.from(new Set(candidates.map((item) => item.trim()).filter(Boolean)));
+}
+
+function unwrapMarkdownJsonFence(content: string) {
+	const match = content.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+	return match?.[1] || content;
+}
+
+function extractFirstJsonObject(content: string) {
+	const start = content.indexOf('{');
+	if (start === -1) {
+		return '';
+	}
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+	for (let index = start; index < content.length; index++) {
+		const char = content[index];
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+			} else if (char === '\\') {
+				escaped = true;
+			} else if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+		if (char === '"') {
+			inString = true;
+		} else if (char === '{') {
+			depth++;
+		} else if (char === '}') {
+			depth--;
+			if (depth === 0) {
+				return content.slice(start, index + 1);
+			}
+		}
+	}
+	return '';
 }
 
 export function createAiSearchInformation(ctx: AiQuestionContext, parsed: ParsedAiAnswer): SearchInformation {
