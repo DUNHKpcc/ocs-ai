@@ -9,6 +9,8 @@
 
 </div>
 
+> **🔑 没有 API Key？推荐使用 [api.dpccgaming.xyz](https://api.dpccgaming.xyz) 获取 Token，支持多种多模态模型，开箱即用。**
+
 ---
 
 ## ✨ 功能
