@@ -42,22 +42,11 @@ async function createUserJs() {
 	// @ts-ignore
 	const ocs = require(path.join(distPath, 'index.js'));
 
+	// 触发对 ocs 模块的引用，确保打包产物被正确加载
+	void ocs.definedProjects;
+
 	/** @return {import('../packages/utils').CreateOptions} */
 	const createOptions = () => {
-		const { CXProject, ZHSProject, ZJYProject, IcveMoocProject, ICourseProject, YKTProject } = ocs;
-		const projectList = [CXProject, ZHSProject, ZJYProject, IcveMoocProject, ICourseProject, YKTProject]
-			.map((s) => `【${s.name}】`)
-			.join(' ');
-
-		const matchMetadata = Array.from(
-			new Set(
-				ocs
-					.definedProjects()
-					.map((p) => (p.domains || []).map((d) => `*://*.${d}/*`))
-					.flat()
-			)
-		);
-
 		return {
 			parseRequire: true,
 			parseResource: true,
@@ -70,22 +59,17 @@ async function createUserJs() {
 				gap: '\t'.repeat(4)
 			},
 			metadata: {
-				name: 'OCS 网课助手',
+				name: 'DPCC-OCS-AI',
 				version: version,
-				description: [
-					'OCS(online-course-script) 网课助手，官网 https://docs.ocsjs.com ，专注于帮助大学生从网课中释放出来',
-					'让自己的时间把握在自己的手中，拥有人性化的操作页面，流畅的步骤提示，支持 ',
-					projectList,
-					'等网课的学习，作业。具体的功能请查看脚本悬浮窗中的教程页面。'
-				].join(' '),
+				description: 'OCS AI answer assistant for arbitrary websites with manual region selection.',
 				author: 'enncy',
 				license: 'MIT',
 				namespace: 'https://enncy.cn',
 				homepage: 'https://docs.ocsjs.com',
 				source: 'https://github.com/ocsjs/ocsjs',
 				icon: 'https://cdn.ocsjs.com/logo.png',
-				connect: ['enncy.cn', 'icodef.com', 'ocsjs.com', 'zaizhexue.top', 'localhost', '127.0.0.1'],
-				match: matchMetadata,
+				connect: ['*'],
+				match: ['*://*/*'],
 				grant: [
 					'GM_info',
 					'GM_getTab',
@@ -106,53 +90,19 @@ async function createUserJs() {
 				'run-at': 'document-start',
 				antifeature: 'payment'
 			},
-			entry: path.join(__dirname, '../packages/scripts/entry.js'),
-			dist: path.join(__dirname, distPath, 'ocs.user.js')
+			entry: path.join(__dirname, '../packages/scripts/entry.ai.js'),
+			dist: path.join(distResolvedPath, 'ocs.ai.user.js')
 		};
 	};
 
-	const officialOpts = createOptions();
-	console.log('CreateUserScript: ', officialOpts.metadata.name, officialOpts.dist);
-	await createUserScript(officialOpts);
-
-	/** 创建调试脚本 */
-	const devOpts = createOptions();
-	devOpts.parseRequire = false;
-	devOpts.parseResource = false;
-	devOpts.metadata.name = devOpts.metadata.name + '(dev)';
-	devOpts.metadata.require = ['file:///' + path.join(distResolvedPath, 'index.js')];
-	devOpts.metadata.resource = [`STYLE file:///${path.join(__dirname, '../packages/scripts/assets/css/style.css')}`];
-	devOpts.entry = path.join(__dirname, '../packages/scripts/entry.dev.js');
-	devOpts.dist = path.join(distResolvedPath, 'ocs.dev.user.js');
 	/** 导出样式文件 */
 	fs.copyFileSync(
 		path.join(__dirname, '../packages/scripts/assets/css/style.css'),
 		path.join(distResolvedPath, 'style.css')
 	);
-	console.log('createUserScript: ', devOpts.metadata.name, devOpts.dist);
-	await createUserScript(devOpts);
-
-	/** 创建全Connect域名通用脚本 */
-	const commonOpts = createOptions();
-	commonOpts.metadata.name = commonOpts.metadata.name + ' - 全域名通用版';
-	const connect = Array.isArray(commonOpts.metadata.connect) ? commonOpts.metadata.connect : [];
-	connect.push('*');
-	commonOpts.metadata.connect = connect;
-	commonOpts.entry = path.join(__dirname, '../packages/scripts/entry.common.js');
-	commonOpts.dist = path.join(distResolvedPath, 'ocs.common.user.js');
-
-	console.log('createUserScript: ', commonOpts.metadata.name, commonOpts.dist);
-	await createUserScript(commonOpts);
 
 	/** 创建 AI 答题助手脚本 */
 	const aiOpts = createOptions();
-	aiOpts.metadata.name = 'DPCC-OCS-AI';
-	aiOpts.metadata.description = 'OCS AI answer assistant for arbitrary websites with manual region selection.';
-	aiOpts.metadata.match = ['*://*/*'];
-	aiOpts.metadata.connect = ['*'];
-	aiOpts.entry = path.join(__dirname, '../packages/scripts/entry.ai.js');
-	aiOpts.dist = path.join(distResolvedPath, 'ocs.ai.user.js');
-
 	console.log('createUserScript: ', aiOpts.metadata.name, aiOpts.dist);
 	await createUserScript(aiOpts);
 }

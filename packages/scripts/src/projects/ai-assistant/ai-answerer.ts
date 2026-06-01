@@ -241,7 +241,7 @@ export function createAiChatMessages(
 	];
 }
 
-export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionContext) {
+async function runChatCompletion(config: AiProviderConfig, messages: AiChatMessage[]) {
 	const handler = config.streamResponse
 		? 'return (res)=>[' +
 		  'res.split(/\\r?\\n/).map(line=>line.trim()).filter(line=>line.startsWith("data:")).map(line=>line.replace(/^data:\\s*/,"")).filter(line=>line&&line!=="[DONE]").map(line=>{try{const parsed=JSON.parse(line);return parsed?.choices?.[0]?.delta?.content||parsed?.choices?.[0]?.message?.content||""}catch(e){return ""}}).join(""),' +
@@ -262,7 +262,7 @@ export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionC
 			model: config.model,
 			temperature: config.temperature,
 			stream: config.streamResponse,
-			messages: createAiChatMessages(config, ctx)
+			messages
 		},
 		handler
 	};
@@ -271,6 +271,50 @@ export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionC
 	if (infos[0]?.error) {
 		throw new Error(infos[0].error);
 	}
-	const raw = infos[0]?.results?.[0]?.question || '';
+	return infos[0]?.results?.[0]?.question || '';
+}
+
+export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionContext) {
+	const raw = await runChatCompletion(config, createAiChatMessages(config, ctx));
+	return createAiSearchInformation(ctx, parseAiAnswerContent(raw));
+}
+
+function createScreenshotPrompt(questionType?: string) {
+	return [
+		'The image is a screenshot of a quiz question (it may contain the question text, options, and figures).',
+		questionType ? `Expected question type: ${questionType}.` : '',
+		'Read the screenshot carefully and answer the question.',
+		'Return JSON only: {"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}'
+	]
+		.filter(Boolean)
+		.join('\n\n');
+}
+
+/**
+ * 截图模式：把框选区域的截图（dataURL）作为图片发给多模态模型解答，不依赖 DOM 文本。
+ */
+export async function requestAiAnswerFromScreenshot(
+	config: AiProviderConfig,
+	dataUrl: string,
+	opts: { questionType?: string } = {}
+) {
+	const messages: AiChatMessage[] = [
+		{ role: 'system', content: config.systemPrompt },
+		{
+			role: 'user',
+			content: [
+				{ type: 'text', text: createScreenshotPrompt(opts.questionType) },
+				{ type: 'image_url', image_url: { url: dataUrl } }
+			]
+		}
+	];
+	const raw = await runChatCompletion(config, messages);
+	const ctx: AiQuestionContext = {
+		question: '（截图识别）',
+		options: [],
+		imageUrls: [dataUrl],
+		type: 'unknown',
+		fillTargets: []
+	};
 	return createAiSearchInformation(ctx, parseAiAnswerContent(raw));
 }

@@ -1,3 +1,5 @@
+import type { ViewportRect } from './capture';
+
 export function createElementSelectorPath(element: HTMLElement) {
 	const parts: string[] = [];
 	let current: HTMLElement | null = element;
@@ -250,6 +252,99 @@ export function startRectRegionPicker(onSelect: (element: HTMLElement, path: str
 			onSelect(selected, createElementSelectorPath(selected));
 		}
 		cleanup();
+	};
+	const keydown = (event: KeyboardEvent) => {
+		if (event.key === 'Escape') {
+			cleanup();
+		}
+	};
+
+	document.addEventListener('mousedown', down, true);
+	document.addEventListener('mousemove', move, true);
+	document.addEventListener('mouseup', up, true);
+	document.addEventListener('keydown', keydown, true);
+}
+
+/**
+ * 与 startRectRegionPicker 一样拖拽绘制矩形，但在松开鼠标时直接返回视口矩形坐标，
+ * 不解析 DOM、不保存 selector。用于「截图提问」模式。
+ */
+export function startRectScreenshotPicker(onSelect: (rect: ViewportRect) => void) {
+	const overlay = document.createElement('div');
+	const box = document.createElement('div');
+	overlay.className = 'ocs-ai-region-overlay';
+	box.className = 'ocs-ai-region-box';
+	applyStyle(overlay, {
+		position: 'fixed',
+		inset: '0',
+		zIndex: '2147483647',
+		pointerEvents: 'auto',
+		cursor: 'crosshair'
+	});
+	applyStyle(box, {
+		position: 'fixed',
+		display: 'none',
+		border: '2px solid #2563eb',
+		background: 'rgba(37, 99, 235, 0.12)',
+		boxSizing: 'border-box',
+		pointerEvents: 'none'
+	});
+	overlay.append(box);
+	document.documentElement.append(overlay);
+
+	let startX = 0;
+	let startY = 0;
+	let rect: DOMRect | undefined;
+	const previousCursor = document.documentElement.style.cursor;
+	document.documentElement.style.cursor = 'crosshair';
+
+	const cleanup = () => {
+		document.documentElement.style.cursor = previousCursor;
+		document.removeEventListener('mousedown', down, true);
+		document.removeEventListener('mousemove', move, true);
+		document.removeEventListener('mouseup', up, true);
+		document.removeEventListener('keydown', keydown, true);
+		overlay.remove();
+	};
+	const renderBox = () => {
+		if (!rect) {
+			return;
+		}
+		box.style.left = `${rect.left}px`;
+		box.style.top = `${rect.top}px`;
+		box.style.width = `${rect.width}px`;
+		box.style.height = `${rect.height}px`;
+	};
+	const down = (event: MouseEvent) => {
+		event.preventDefault();
+		event.stopPropagation();
+		startX = event.clientX;
+		startY = event.clientY;
+		rect = normalizeClientRect(startX, startY, startX, startY);
+		box.style.display = 'block';
+		renderBox();
+	};
+	const move = (event: MouseEvent) => {
+		if (!rect) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		rect = normalizeClientRect(startX, startY, event.clientX, event.clientY);
+		renderBox();
+	};
+	const up = (event: MouseEvent) => {
+		if (!rect) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		rect = normalizeClientRect(startX, startY, event.clientX, event.clientY);
+		const selected = { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+		cleanup();
+		if (selected.width >= 4 && selected.height >= 4) {
+			onSelect(selected);
+		}
 	};
 	const keydown = (event: KeyboardEvent) => {
 		if (event.key === 'Escape') {

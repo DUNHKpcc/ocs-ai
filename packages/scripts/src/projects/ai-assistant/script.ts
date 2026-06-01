@@ -1,14 +1,56 @@
 import { $message, $ui, h, Script } from 'easy-us';
-import { createAiSearchInformation, requestAiAnswer } from './ai-answerer';
+import { captureViewportRect, releaseCaptureStream, ViewportRect } from './capture';
+import { createAiSearchInformation, requestAiAnswer, requestAiAnswerFromScreenshot } from './ai-answerer';
 import { fillAiAnswer } from './fill';
 import { createQuestionFingerprint } from './fingerprint';
 import { createRegionQuestionObserver } from './observer';
 import { recognizeAiQuestion, recognizeAiQuestions, resolveActiveQuestionElement } from './recognizer';
-import { resolveElementSelectorPath, startRectRegionPicker, startRegionPicker } from './selector';
+import { resolveElementSelectorPath, startRectScreenshotPicker, startRegionPicker } from './selector';
 import { AiQuestionContext, ParsedAiAnswer } from './types';
 
 const DEFAULT_SYSTEM_PROMPT =
 	'You answer quiz questions. Return compact JSON only. For choice questions, answer with visible option labels when possible.';
+
+const DEFAULT_SCREENSHOT_HOTKEY = 'Alt+S';
+const DEFAULT_RECAPTURE_HOTKEY = 'Alt+R';
+
+/** 把单个按键标准化（字母统一大写，空格显示为 Space） */
+function normalizeHotkeyKey(key: string) {
+	if (key === ' ' || key === 'Spacebar') {
+		return 'Space';
+	}
+	return key.length === 1 ? key.toUpperCase() : key;
+}
+
+/** 根据键盘事件生成快捷键字符串，如 Alt+Shift+S */
+function hotkeyFromEvent(event: KeyboardEvent) {
+	const parts: string[] = [];
+	if (event.ctrlKey) parts.push('Ctrl');
+	if (event.altKey) parts.push('Alt');
+	if (event.shiftKey) parts.push('Shift');
+	if (event.metaKey) parts.push('Meta');
+	parts.push(normalizeHotkeyKey(event.key));
+	return parts.join('+');
+}
+
+/** 判断键盘事件是否匹配给定的快捷键字符串 */
+function matchHotkey(event: KeyboardEvent, hotkey: string) {
+	const parts = hotkey
+		.split('+')
+		.map((part) => part.trim())
+		.filter(Boolean);
+	const key = parts.pop();
+	if (!key) {
+		return false;
+	}
+	return (
+		event.ctrlKey === parts.includes('Ctrl') &&
+		event.altKey === parts.includes('Alt') &&
+		event.shiftKey === parts.includes('Shift') &&
+		event.metaKey === parts.includes('Meta') &&
+		normalizeHotkeyKey(event.key) === key
+	);
+}
 
 type ObserverHandle = ReturnType<typeof createRegionQuestionObserver>;
 type AiAnswerItem = {
@@ -30,6 +72,7 @@ const state: {
 	loading: boolean;
 	requestVersion: number;
 	cache: Map<string, ParsedAiAnswer>;
+	screenshotRect?: ViewportRect;
 } = {
 	loading: false,
 	requestVersion: 0,
@@ -127,9 +170,37 @@ function renderPanel(panel: any, script: Script) {
 	const optionText = state.question?.options.length
 		? state.question.options.map((option) => `${option.label}. ${option.text}`).join('；')
 		: '暂无';
+	/** 渲染截图缩略图（仅针对截图搜题产生的 data: 图片） */
+	const renderScreenshotThumbs = (question?: AiQuestionContext) => {
+		const shots = (question?.imageUrls || []).filter((url) => url.startsWith('data:'));
+		if (!shots.length) {
+			return '';
+		}
+		return h('div', { style: { margin: '4px 0' } }, [
+			h('b', '截图：'),
+			h(
+				'div',
+				{ style: { marginTop: '4px' } },
+				shots.map((url) =>
+					h('img', {
+						src: url,
+						style: {
+							maxWidth: '100%',
+							maxHeight: '180px',
+							border: '1px solid #e5e7eb',
+							borderRadius: '4px',
+							display: 'block',
+							marginTop: '4px'
+						}
+					})
+				)
+			)
+		]);
+	};
 	const renderAnswerItem = (item: AiAnswerItem, index: number) =>
 		h('div', { style: { padding: '6px 0', borderTop: index ? '1px solid #e5e7eb' : '' } }, [
 			h('div', [h('b', `题目 ${index + 1}：`), item.question.question || '等待识别']),
+			renderScreenshotThumbs(item.question),
 			h('div', [
 				h('b', '选项：'),
 				item.question.options.length
@@ -151,14 +222,26 @@ function renderPanel(panel: any, script: Script) {
 		});
 	};
 
-	const rectSelectButton = $ui.button('拖拽框选区域');
+	const rectSelectButton = $ui.button('拖拽框选截图');
 	rectSelectButton.onclick = () => {
-		startRectRegionPicker((_, path) => {
-			setRulePath(cfg, path);
-			state.status = '已保存拖拽框选区域。';
-			$message.success({ content: '已保存 AI 拖拽框选区域。' });
+		startRectScreenshotPicker(async (rect) => {
+			state.screenshotRect = rect;
+			state.status = '已框选区域，开始截图…（请在弹窗中选择共享“此标签页”）';
+			renderPanel(panel, script);
+			await captureAndAsk(script, () => renderPanel(panel, script));
 			renderPanel(panel, script);
 		});
+	};
+
+	const recaptureButton = $ui.button('重新截图提问');
+	recaptureButton.disabled = !state.screenshotRect;
+	recaptureButton.onclick = async () => {
+		if (!state.screenshotRect) {
+			$message.warn({ content: '请先用“拖拽框选截图”框选区域。' });
+			return;
+		}
+		await captureAndAsk(script, () => renderPanel(panel, script));
+		renderPanel(panel, script);
 	};
 
 	const startButton = $ui.button('开始监听');
@@ -206,6 +289,8 @@ function renderPanel(panel: any, script: Script) {
 		state.items = [];
 		state.error = undefined;
 		state.loading = false;
+		state.screenshotRect = undefined;
+		releaseCaptureStream();
 		setRulePath(cfg, '');
 		state.status = '已清空所选题目区域。';
 		$message.success({ content: '已清空 AI 答题区域。' });
@@ -244,6 +329,7 @@ function renderPanel(panel: any, script: Script) {
 			  ]
 			: [
 					h('div', [h('b', '题目：'), state.question?.question || '等待识别']),
+					renderScreenshotThumbs(state.question),
 					h('div', [h('b', '选项：'), optionText]),
 					h('div', [h('b', '图片：'), imageCount ? `${imageCount} 张` : '暂无']),
 					h('div', [h('b', '答案：'), state.loading ? '请求中...' : answerText || '暂无']),
@@ -256,6 +342,7 @@ function renderPanel(panel: any, script: Script) {
 			h('div', { style: { marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
 				selectButton,
 				rectSelectButton,
+				recaptureButton,
 				startButton,
 				clearRegionButton,
 				clearButton,
@@ -341,6 +428,77 @@ async function updateCurrentAnswer(root: HTMLElement, script: Script, onStateCha
 	}
 }
 
+async function captureAndAsk(script: Script, onStateChange?: () => void) {
+	const cfg = script.cfg as any;
+	if (!state.screenshotRect) {
+		return;
+	}
+	if (!cfg.baseURL || !cfg.apiKey || !cfg.model) {
+		state.error = '请先配置 OpenAI 兼容接口、API Key 和模型。';
+		onStateChange?.();
+		return;
+	}
+	// 截图模式与 DOM 监听互斥，停止可能存在的 observer
+	state.observer?.disconnect();
+	state.observer = undefined;
+	state.error = undefined;
+	state.loading = true;
+	const requestVersion = ++state.requestVersion;
+	onStateChange?.();
+
+	let dataUrl: string;
+	try {
+		dataUrl = await captureViewportRect(state.screenshotRect);
+	} catch (error) {
+		if (state.requestVersion === requestVersion) {
+			state.loading = false;
+			state.error = (error as any)?.message || String(error);
+			onStateChange?.();
+		}
+		return;
+	}
+	if (state.requestVersion !== requestVersion) {
+		return;
+	}
+
+	const question: AiQuestionContext = {
+		question: '（截图识别）',
+		options: [],
+		imageUrls: [dataUrl],
+		type: 'unknown',
+		fillTargets: []
+	};
+	const item: AiAnswerItem = { question, fingerprint: 'screenshot', loading: true };
+	state.items = [item];
+	state.fingerprint = undefined;
+	state.question = question;
+	state.answer = undefined;
+	onStateChange?.();
+
+	try {
+		const info = await requestAiAnswerFromScreenshot(createProviderConfig(cfg), dataUrl, {
+			questionType: cfg.questionMode === 'multiple' ? 'multiple' : 'single'
+		});
+		if (state.requestVersion !== requestVersion) {
+			return;
+		}
+		item.answer = createAnswerFromSearch(info);
+		state.answer = item.answer;
+	} catch (error) {
+		if (state.requestVersion !== requestVersion) {
+			return;
+		}
+		item.error = (error as any)?.message || String(error);
+		state.error = item.error;
+	} finally {
+		if (state.requestVersion === requestVersion) {
+			item.loading = false;
+			state.loading = false;
+		}
+	}
+	onStateChange?.();
+}
+
 export function createAiAnswerAssistantScript() {
 	return new Script({
 		name: '🤖 AI答题助手',
@@ -364,6 +522,64 @@ export function createAiAnswerAssistantScript() {
 					['single', '单题识别'],
 					['multiple', '多题识别']
 				]
+			},
+			screenshotHotkey: {
+				label: '截图快捷键',
+				defaultValue: DEFAULT_SCREENSHOT_HOTKEY,
+				attrs: {
+					placeholder: '点击后按下快捷键',
+					readOnly: true,
+					title:
+						'点击此输入框，然后按下你想用的组合键（如 Alt+S、Ctrl+Shift+Q）。\n按 Esc / Backspace 清空（清空后关闭快捷键）。\n触发后进入拖拽框选，松手即自动截图提问。'
+				},
+				onload(config: any) {
+					const input = this as unknown as HTMLInputElement;
+					input.addEventListener('keydown', (event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						// 清空 = 关闭快捷键
+						if (event.key === 'Escape' || event.key === 'Backspace' || event.key === 'Delete') {
+							config.value = '';
+							input.blur();
+							return;
+						}
+						// 忽略只按下修饰键的情况
+						if (['Control', 'Alt', 'Shift', 'Meta', 'OS', 'CapsLock'].includes(event.key)) {
+							return;
+						}
+						config.value = hotkeyFromEvent(event);
+						input.blur();
+					});
+				}
+			},
+			recaptureHotkey: {
+				label: '重新截图快捷键',
+				defaultValue: DEFAULT_RECAPTURE_HOTKEY,
+				attrs: {
+					placeholder: '点击后按下快捷键',
+					readOnly: true,
+					title:
+						'点击此输入框，然后按下你想用的组合键（如 Alt+R）。\n按 Esc / Backspace 清空（清空后关闭快捷键）。\n触发时：按上次框选过的区域重新截图提问（需先框选过一次）。'
+				},
+				onload(config: any) {
+					const input = this as unknown as HTMLInputElement;
+					input.addEventListener('keydown', (event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						// 清空 = 关闭快捷键
+						if (event.key === 'Escape' || event.key === 'Backspace' || event.key === 'Delete') {
+							config.value = '';
+							input.blur();
+							return;
+						}
+						// 忽略只按下修饰键的情况
+						if (['Control', 'Alt', 'Shift', 'Meta', 'OS', 'CapsLock'].includes(event.key)) {
+							return;
+						}
+						config.value = hotkeyFromEvent(event);
+						input.blur();
+					});
+				}
 			},
 			useUrlRule: {
 				label: '按当前URL保存区域',
@@ -419,6 +635,55 @@ export function createAiAnswerAssistantScript() {
 				tag: 'textarea',
 				defaultValue: DEFAULT_SYSTEM_PROMPT
 			}
+		},
+		oncomplete() {
+			// 仅在顶层窗口注册截图快捷键，避免 iframe 内重复触发
+			if (window.top !== window.self) {
+				return;
+			}
+			const script = this as unknown as Script;
+			const rerender = () => {
+				const panel = (script as any).panel;
+				if (panel) {
+					renderPanel(panel, script);
+				}
+			};
+			// 截图快捷键：进入拖拽框选，松手后自动截图提问
+			const startPicker = () => {
+				startRectScreenshotPicker(async (rect) => {
+					state.screenshotRect = rect;
+					rerender();
+					await captureAndAsk(script, rerender);
+					rerender();
+				});
+			};
+			// 重新截图快捷键：按上次保存的区域重新截图提问
+			const recapture = async () => {
+				if (!state.screenshotRect) {
+					$message.warn({ content: '还没有框选过区域，请先用“拖拽框选截图”或截图快捷键框选一次。' });
+					return;
+				}
+				await captureAndAsk(script, rerender);
+				rerender();
+			};
+			// 冒泡阶段监听，配合录制输入框的 stopPropagation，避免录制快捷键时误触发
+			document.addEventListener('keydown', (event) => {
+				const cfg = script.cfg as any;
+				// 在输入框/可编辑区域中输入时不触发
+				const target = event.target as HTMLElement | null;
+				if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+					return;
+				}
+				if (cfg.screenshotHotkey && matchHotkey(event, cfg.screenshotHotkey)) {
+					event.preventDefault();
+					event.stopPropagation();
+					startPicker();
+				} else if (cfg.recaptureHotkey && matchHotkey(event, cfg.recaptureHotkey)) {
+					event.preventDefault();
+					event.stopPropagation();
+					recapture();
+				}
+			});
 		},
 		onrender({ panel }) {
 			renderPanel(panel, this);
