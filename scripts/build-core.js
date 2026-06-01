@@ -107,6 +107,11 @@ async function createUserJs() {
 	const aiOpts = createOptions();
 	console.log('createUserScript: ', aiOpts.metadata.name, aiOpts.dist);
 	await createUserScript(aiOpts);
+
+	/** 同步一份到仓库根目录（已被 git 跟踪，供 raw 链接一键安装 / 自动更新） */
+	const trackedUserScript = path.join(__dirname, '../ocs.ai.user.js');
+	fs.copyFileSync(aiOpts.dist, trackedUserScript);
+	console.log('copied tracked userscript: ', trackedUserScript);
 }
 
 exports.default = series(cleanOutput, buildPackages, createUserJs);

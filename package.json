@@ -1,7 +1,7 @@
 {
-	"name": "ocsjs",
-	"version": "4.13.11",
-	"description": "ocs - online course script 在线网络课程辅助工具",
+	"name": "ocs-ai",
+	"version": "1.0.0",
+	"description": "DPCC-OCS-AI - 任意网页 AI 答题助手（截图搜题）",
 	"types": "./lib/src/core/index.d.ts",
 	"main": "./lib/src/core/index.js",
 	"files": [
