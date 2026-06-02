@@ -5480,6 +5480,35 @@ ${imagesText}` : "",
   const DEFAULT_SYSTEM_PROMPT = "You answer quiz questions. Return compact JSON only. For choice questions, answer with visible option labels when possible.";
   const DEFAULT_SCREENSHOT_HOTKEY = "Alt+S";
   const DEFAULT_RECAPTURE_HOTKEY = "Alt+R";
+  const PROVIDER_GROUP_COUNT = 3;
+  function createDefaultGroups() {
+    return Array.from({ length: PROVIDER_GROUP_COUNT }, (_, i) => ({
+      name: `供应商 ${i + 1}`,
+      baseURL: "",
+      apiKey: "",
+      model: ""
+    }));
+  }
+  function getProviderGroups(cfg) {
+    try {
+      const groups = typeof cfg.providerGroups === "string" ? JSON.parse(cfg.providerGroups) : cfg.providerGroups;
+      if (Array.isArray(groups) && groups.length === PROVIDER_GROUP_COUNT) {
+        return groups;
+      }
+    } catch (_) {
+    }
+    return createDefaultGroups();
+  }
+  function setProviderGroups(cfg, groups) {
+    cfg.providerGroups = JSON.stringify(groups);
+  }
+  function getActiveGroupIndex(cfg) {
+    const idx = Number(cfg.activeGroup || 0);
+    return idx >= 0 && idx < PROVIDER_GROUP_COUNT ? idx : 0;
+  }
+  function getActiveProvider(cfg) {
+    return getProviderGroups(cfg)[getActiveGroupIndex(cfg)];
+  }
   function normalizeHotkeyKey(key) {
     if (key === " " || key === "Spacebar") {
       return "Space";
@@ -5524,10 +5553,11 @@ ${imagesText}` : "",
     }
   }
   function createProviderConfig(cfg) {
+    const provider = getActiveProvider(cfg);
     return {
-      baseURL: cfg.baseURL,
-      apiKey: cfg.apiKey,
-      model: cfg.model,
+      baseURL: provider.baseURL,
+      apiKey: provider.apiKey,
+      model: provider.model,
       temperature: Number(cfg.temperature || 0.2),
       timeout: Number(cfg.timeout || 60),
       systemPrompt: cfg.systemPrompt || DEFAULT_SYSTEM_PROMPT,
@@ -5579,6 +5609,81 @@ ${imagesText}` : "",
         minHeight: "54px"
       });
     }
+  }
+  function createInputField(label, value, onChange, opts) {
+    const input = lib.h("input", {
+      value,
+      type: (opts == null ? void 0 : opts.type) || "text",
+      placeholder: (opts == null ? void 0 : opts.placeholder) || "",
+      style: {
+        boxSizing: "border-box",
+        width: "100%",
+        padding: "4px 6px",
+        border: "1px solid #d1d5db",
+        borderRadius: "4px",
+        fontSize: "12px"
+      }
+    });
+    input.addEventListener("change", () => onChange(input.value));
+    return lib.h("div", { style: { marginBottom: "6px" } }, [
+      lib.h("div", { style: { fontSize: "12px", color: "#374151", marginBottom: "2px" } }, label),
+      input
+    ]);
+  }
+  function renderProviderGroupEditor(cfg, script2, panel) {
+    const groups = getProviderGroups(cfg);
+    const activeIdx = getActiveGroupIndex(cfg);
+    const saveGroups = () => {
+      setProviderGroups(cfg, groups);
+    };
+    const tabs = groups.map((group2, idx) => {
+      const isActive = idx === activeIdx;
+      const tab = lib.h(
+        "div",
+        {
+          style: {
+            padding: "4px 10px",
+            cursor: "pointer",
+            fontSize: "12px",
+            borderBottom: isActive ? "2px solid #2563eb" : "2px solid transparent",
+            color: isActive ? "#2563eb" : "#6b7280",
+            fontWeight: isActive ? "bold" : "normal"
+          }
+        },
+        group2.name || `供应商 ${idx + 1}`
+      );
+      tab.onclick = () => {
+        cfg.activeGroup = String(idx);
+        renderPanel(panel, script2);
+      };
+      return tab;
+    });
+    const group = groups[activeIdx];
+    const nameField = createInputField("名称", group.name, (val) => {
+      group.name = val;
+      saveGroups();
+      renderPanel(panel, script2);
+    }, { placeholder: `供应商 ${activeIdx + 1}` });
+    const urlField = createInputField("Base URL", group.baseURL, (val) => {
+      group.baseURL = val;
+      saveGroups();
+    }, { placeholder: "https://api.openai.com/v1" });
+    const keyField = createInputField("API Key", group.apiKey, (val) => {
+      group.apiKey = val;
+      saveGroups();
+    }, { type: "password", placeholder: "sk-..." });
+    const modelField = createInputField("模型", group.model, (val) => {
+      group.model = val;
+      saveGroups();
+    }, { placeholder: "gpt-4o-mini" });
+    return lib.h("div", { style: { margin: "4px 0" } }, [
+      lib.h("div", { style: { fontSize: "12px", color: "#6b7280", marginBottom: "4px" } }, "API 供应商配置："),
+      lib.h("div", { style: { display: "flex", gap: "0", borderBottom: "1px solid #e5e7eb", marginBottom: "8px" } }, tabs),
+      nameField,
+      urlField,
+      keyField,
+      modelField
+    ]);
   }
   function renderPanel(panel, script2) {
     var _a, _b, _c, _d;
@@ -5759,6 +5864,8 @@ ${imagesText}` : "",
           fillButton
         ]),
         lib.h("hr"),
+        renderProviderGroupEditor(cfg, script2, panel),
+        lib.h("hr"),
         ...detailNodes,
         state$1.status ? lib.h("div", { style: { color: "#047857" } }, state$1.status) : "",
         state$1.error ? lib.h("div", { className: "error" }, state$1.error) : ""
@@ -5787,10 +5894,11 @@ ${imagesText}` : "",
     });
     state$1.question = (_a = state$1.items[0]) == null ? void 0 : _a.question;
     state$1.answer = (_b = state$1.items[0]) == null ? void 0 : _b.answer;
-    if (!cfg.baseURL || !cfg.apiKey || !cfg.model) {
+    const _activeProvider = getActiveProvider(cfg);
+    if (!_activeProvider.baseURL || !_activeProvider.apiKey || !_activeProvider.model) {
       state$1.answer = void 0;
       state$1.loading = false;
-      state$1.error = "请先配置 OpenAI 兼容接口、API Key 和模型。";
+      state$1.error = "请先配置当前供应商的 Base URL、API Key 和模型。";
       onStateChange == null ? void 0 : onStateChange();
       return;
     }
@@ -5990,18 +6098,14 @@ ${imagesText}` : "",
         urlRegionPath: {
           defaultValue: ""
         },
-        baseURL: {
-          label: "Base URL",
-          defaultValue: ""
+        activeGroup: {
+          label: "当前供应商",
+          tag: "select",
+          defaultValue: "0",
+          options: Array.from({ length: PROVIDER_GROUP_COUNT }, (_, i) => [String(i), `供应商 ${i + 1}`])
         },
-        apiKey: {
-          label: "API Key",
-          attrs: { type: "password" },
-          defaultValue: ""
-        },
-        model: {
-          label: "模型",
-          defaultValue: ""
+        providerGroups: {
+          defaultValue: JSON.stringify(createDefaultGroups())
         },
         imageMode: {
           label: "图片发送方式",

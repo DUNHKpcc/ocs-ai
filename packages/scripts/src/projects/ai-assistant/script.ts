@@ -14,6 +14,49 @@ const DEFAULT_SYSTEM_PROMPT =
 const DEFAULT_SCREENSHOT_HOTKEY = 'Alt+S';
 const DEFAULT_RECAPTURE_HOTKEY = 'Alt+R';
 
+const PROVIDER_GROUP_COUNT = 3;
+
+interface ProviderGroup {
+	name: string;
+	baseURL: string;
+	apiKey: string;
+	model: string;
+}
+
+function createDefaultGroups(): ProviderGroup[] {
+	return Array.from({ length: PROVIDER_GROUP_COUNT }, (_, i) => ({
+		name: `供应商 ${i + 1}`,
+		baseURL: '',
+		apiKey: '',
+		model: ''
+	}));
+}
+
+function getProviderGroups(cfg: any): ProviderGroup[] {
+	try {
+		const groups = typeof cfg.providerGroups === 'string' ? JSON.parse(cfg.providerGroups) : cfg.providerGroups;
+		if (Array.isArray(groups) && groups.length === PROVIDER_GROUP_COUNT) {
+			return groups;
+		}
+	} catch (_) {
+		/* ignore parse error */
+	}
+	return createDefaultGroups();
+}
+
+function setProviderGroups(cfg: any, groups: ProviderGroup[]) {
+	cfg.providerGroups = JSON.stringify(groups);
+}
+
+function getActiveGroupIndex(cfg: any): number {
+	const idx = Number(cfg.activeGroup || 0);
+	return idx >= 0 && idx < PROVIDER_GROUP_COUNT ? idx : 0;
+}
+
+function getActiveProvider(cfg: any): ProviderGroup {
+	return getProviderGroups(cfg)[getActiveGroupIndex(cfg)];
+}
+
 /** 把单个按键标准化（字母统一大写，空格显示为 Space） */
 function normalizeHotkeyKey(key: string) {
 	if (key === ' ' || key === 'Spacebar') {
@@ -93,10 +136,11 @@ function setRulePath(cfg: any, path: string) {
 }
 
 function createProviderConfig(cfg: any) {
+	const provider = getActiveProvider(cfg);
 	return {
-		baseURL: cfg.baseURL,
-		apiKey: cfg.apiKey,
-		model: cfg.model,
+		baseURL: provider.baseURL,
+		apiKey: provider.apiKey,
+		model: provider.model,
 		temperature: Number(cfg.temperature || 0.2),
 		timeout: Number(cfg.timeout || 60),
 		systemPrompt: cfg.systemPrompt || DEFAULT_SYSTEM_PROMPT,
@@ -153,6 +197,97 @@ function applyPanelLayout(panel: any) {
 			minHeight: '54px'
 		});
 	}
+}
+
+function createInputField(
+	label: string,
+	value: string,
+	onChange: (val: string) => void,
+	opts?: { type?: string; placeholder?: string }
+) {
+	const input = h('input', {
+		value: value,
+		type: opts?.type || 'text',
+		placeholder: opts?.placeholder || '',
+		style: {
+			boxSizing: 'border-box',
+			width: '100%',
+			padding: '4px 6px',
+			border: '1px solid #d1d5db',
+			borderRadius: '4px',
+			fontSize: '12px'
+		}
+	}) as HTMLInputElement;
+	input.addEventListener('change', () => onChange(input.value));
+	return h('div', { style: { marginBottom: '6px' } }, [
+		h('div', { style: { fontSize: '12px', color: '#374151', marginBottom: '2px' } }, label),
+		input
+	]);
+}
+
+function renderProviderGroupEditor(cfg: any, script: Script, panel: any) {
+	const groups = getProviderGroups(cfg);
+	const activeIdx = getActiveGroupIndex(cfg);
+
+	const saveGroups = () => {
+		setProviderGroups(cfg, groups);
+	};
+
+	// 分组标签页
+	const tabs = groups.map((group, idx) => {
+		const isActive = idx === activeIdx;
+		const tab = h(
+			'div',
+			{
+				style: {
+					padding: '4px 10px',
+					cursor: 'pointer',
+					fontSize: '12px',
+					borderBottom: isActive ? '2px solid #2563eb' : '2px solid transparent',
+					color: isActive ? '#2563eb' : '#6b7280',
+					fontWeight: isActive ? 'bold' : 'normal'
+				}
+			},
+			group.name || `供应商 ${idx + 1}`
+		);
+		tab.onclick = () => {
+			cfg.activeGroup = String(idx);
+			renderPanel(panel, script);
+		};
+		return tab;
+	});
+
+	const group = groups[activeIdx];
+
+	const nameField = createInputField('名称', group.name, (val) => {
+		group.name = val;
+		saveGroups();
+		renderPanel(panel, script);
+	}, { placeholder: `供应商 ${activeIdx + 1}` });
+
+	const urlField = createInputField('Base URL', group.baseURL, (val) => {
+		group.baseURL = val;
+		saveGroups();
+	}, { placeholder: 'https://api.openai.com/v1' });
+
+	const keyField = createInputField('API Key', group.apiKey, (val) => {
+		group.apiKey = val;
+		saveGroups();
+	}, { type: 'password', placeholder: 'sk-...' });
+
+	const modelField = createInputField('模型', group.model, (val) => {
+		group.model = val;
+		saveGroups();
+	}, { placeholder: 'gpt-4o-mini' });
+
+	return h('div', { style: { margin: '4px 0' } }, [
+		h('div', { style: { fontSize: '12px', color: '#6b7280', marginBottom: '4px' } }, 'API 供应商配置：'),
+		h('div', { style: { display: 'flex', gap: '0', borderBottom: '1px solid #e5e7eb', marginBottom: '8px' } }, tabs),
+		nameField,
+		urlField,
+		keyField,
+		modelField
+	]);
 }
 
 function renderPanel(panel: any, script: Script) {
@@ -350,6 +485,8 @@ function renderPanel(panel: any, script: Script) {
 				fillButton
 			]),
 			h('hr'),
+			renderProviderGroupEditor(cfg, script, panel),
+			h('hr'),
 			...detailNodes,
 			state.status ? h('div', { style: { color: '#047857' } }, state.status) : '',
 			state.error ? h('div', { className: 'error' }, state.error) : ''
@@ -378,10 +515,11 @@ async function updateCurrentAnswer(root: HTMLElement, script: Script, onStateCha
 	});
 	state.question = state.items[0]?.question;
 	state.answer = state.items[0]?.answer;
-	if (!cfg.baseURL || !cfg.apiKey || !cfg.model) {
+	const _activeProvider = getActiveProvider(cfg);
+	if (!_activeProvider.baseURL || !_activeProvider.apiKey || !_activeProvider.model) {
 		state.answer = undefined;
 		state.loading = false;
-		state.error = '请先配置 OpenAI 兼容接口、API Key 和模型。';
+		state.error = '请先配置当前供应商的 Base URL、API Key 和模型。';
 		onStateChange?.();
 		return;
 	}
@@ -592,18 +730,14 @@ export function createAiAnswerAssistantScript() {
 			urlRegionPath: {
 				defaultValue: ''
 			},
-			baseURL: {
-				label: 'Base URL',
-				defaultValue: ''
+			activeGroup: {
+				label: '当前供应商',
+				tag: 'select',
+				defaultValue: '0',
+				options: Array.from({ length: PROVIDER_GROUP_COUNT }, (_, i) => [String(i), `供应商 ${i + 1}`])
 			},
-			apiKey: {
-				label: 'API Key',
-				attrs: { type: 'password' },
-				defaultValue: ''
-			},
-			model: {
-				label: '模型',
-				defaultValue: ''
+			providerGroups: {
+				defaultValue: JSON.stringify(createDefaultGroups())
 			},
 			imageMode: {
 				label: '图片发送方式',
