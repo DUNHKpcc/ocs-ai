@@ -731,10 +731,8 @@ export function createAiAnswerAssistantScript() {
 				defaultValue: ''
 			},
 			activeGroup: {
-				label: '当前供应商',
-				tag: 'select',
-				defaultValue: '0',
-				options: Array.from({ length: PROVIDER_GROUP_COUNT }, (_, i) => [String(i), `供应商 ${i + 1}`])
+				// 隐藏存储项：当前选中的供应商组，由面板内的标签页控制
+				defaultValue: '0'
 			},
 			providerGroups: {
 				defaultValue: JSON.stringify(createDefaultGroups())

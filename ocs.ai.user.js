@@ -6099,10 +6099,7 @@ ${imagesText}` : "",
           defaultValue: ""
         },
         activeGroup: {
-          label: "当前供应商",
-          tag: "select",
-          defaultValue: "0",
-          options: Array.from({ length: PROVIDER_GROUP_COUNT }, (_, i) => [String(i), `供应商 ${i + 1}`])
+          defaultValue: "0"
         },
         providerGroups: {
           defaultValue: JSON.stringify(createDefaultGroups())
