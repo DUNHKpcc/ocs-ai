@@ -5746,14 +5746,43 @@ ${imagesText}` : "",
       group.model = val;
       saveGroups();
     }, { placeholder: "gpt-4o-mini" });
-    return lib.h("div", { style: { margin: "4px 0" } }, [
-      lib.h("div", { style: { fontSize: "12px", color: "#6b7280", marginBottom: "4px" } }, "API 供应商配置："),
-      lib.h("div", { style: { display: "flex", gap: "0", borderBottom: "1px solid #e5e7eb", marginBottom: "8px" } }, tabs),
-      nameField,
-      urlField,
-      keyField,
-      modelField
-    ]);
+    const collapsed = !!cfg.providerCollapsed;
+    const configured = !!(group.baseURL && group.apiKey && group.model);
+    const header2 = lib.h(
+      "div",
+      {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          cursor: "pointer",
+          userSelect: "none",
+          marginBottom: "4px"
+        }
+      },
+      [
+        lib.h("span", { style: { fontSize: "12px", color: "#6b7280" } }, "API 供应商配置："),
+        lib.h("span", { style: { fontSize: "12px", color: "#2563eb" } }, collapsed ? "展开 ▸" : "收起 ▾")
+      ]
+    );
+    header2.onclick = () => {
+      cfg.providerCollapsed = !collapsed;
+      renderPanel(panel, script2);
+    };
+    const tabsBar = lib.h(
+      "div",
+      { style: { display: "flex", gap: "0", borderBottom: "1px solid #e5e7eb", marginBottom: "8px" } },
+      tabs
+    );
+    if (collapsed) {
+      const summary = lib.h(
+        "div",
+        { style: { fontSize: "12px", color: "#374151", padding: "2px 0" } },
+        `${configured ? "✅" : "⚠️"} 当前：${group.name || `供应商 ${activeIdx + 1}`}${group.model ? " · " + group.model : "（未配置）"}`
+      );
+      return lib.h("div", { style: { margin: "4px 0" } }, [header2, tabsBar, summary]);
+    }
+    return lib.h("div", { style: { margin: "4px 0" } }, [header2, tabsBar, nameField, urlField, keyField, modelField]);
   }
   function renderPanel(panel, script2) {
     var _a, _b, _c, _d;
@@ -6174,6 +6203,9 @@ ${imagesText}` : "",
         },
         providerGroups: {
           defaultValue: JSON.stringify(createDefaultGroups())
+        },
+        providerCollapsed: {
+          defaultValue: false
         },
         imageMode: {
           label: "图片发送方式",

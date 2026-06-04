@@ -299,14 +299,51 @@ function renderProviderGroupEditor(cfg: any, script: Script, panel: any) {
 		saveGroups();
 	}, { placeholder: 'gpt-4o-mini' });
 
-	return h('div', { style: { margin: '4px 0' } }, [
-		h('div', { style: { fontSize: '12px', color: '#6b7280', marginBottom: '4px' } }, 'API 供应商配置：'),
-		h('div', { style: { display: 'flex', gap: '0', borderBottom: '1px solid #e5e7eb', marginBottom: '8px' } }, tabs),
-		nameField,
-		urlField,
-		keyField,
-		modelField
-	]);
+	const collapsed = !!cfg.providerCollapsed;
+	const configured = !!(group.baseURL && group.apiKey && group.model);
+
+	// 可点击的标题栏：折叠/展开供应商配置
+	const header = h(
+		'div',
+		{
+			style: {
+				display: 'flex',
+				justifyContent: 'space-between',
+				alignItems: 'center',
+				cursor: 'pointer',
+				userSelect: 'none',
+				marginBottom: '4px'
+			}
+		},
+		[
+			h('span', { style: { fontSize: '12px', color: '#6b7280' } }, 'API 供应商配置：'),
+			h('span', { style: { fontSize: '12px', color: '#2563eb' } }, collapsed ? '展开 ▸' : '收起 ▾')
+		]
+	);
+	header.onclick = () => {
+		cfg.providerCollapsed = !collapsed;
+		renderPanel(panel, script);
+	};
+
+	const tabsBar = h(
+		'div',
+		{ style: { display: 'flex', gap: '0', borderBottom: '1px solid #e5e7eb', marginBottom: '8px' } },
+		tabs
+	);
+
+	if (collapsed) {
+		// 折叠态：只显示当前供应商的一行摘要
+		const summary = h(
+			'div',
+			{ style: { fontSize: '12px', color: '#374151', padding: '2px 0' } },
+			`${configured ? '✅' : '⚠️'} 当前：${group.name || `供应商 ${activeIdx + 1}`}${
+				group.model ? ' · ' + group.model : '（未配置）'
+			}`
+		);
+		return h('div', { style: { margin: '4px 0' } }, [header, tabsBar, summary]);
+	}
+
+	return h('div', { style: { margin: '4px 0' } }, [header, tabsBar, nameField, urlField, keyField, modelField]);
 }
 
 function renderPanel(panel: any, script: Script) {
@@ -756,6 +793,10 @@ export function createAiAnswerAssistantScript() {
 			},
 			providerGroups: {
 				defaultValue: JSON.stringify(createDefaultGroups())
+			},
+			providerCollapsed: {
+				// 隐藏存储项：供应商配置区是否折叠
+				defaultValue: false
 			},
 			imageMode: {
 				label: '图片发送方式',
