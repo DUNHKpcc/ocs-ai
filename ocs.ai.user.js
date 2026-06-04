@@ -4581,16 +4581,20 @@ ${imagesText}` : "",
       { role: "user", content: userContent }
     ];
   }
+  function extractChatContent(raw, stream) {
+    var _a, _b, _c, _d, _e;
+    if (stream) {
+      return parseOpenAIStreamContent(typeof raw === "string" ? raw : String(raw != null ? raw : ""));
+    }
+    return ((_c = (_b = (_a = raw == null ? void 0 : raw.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.message) == null ? void 0 : _c.content) || ((_e = (_d = raw == null ? void 0 : raw.choices) == null ? void 0 : _d[0]) == null ? void 0 : _e.text) || "";
+  }
   async function runChatCompletion(config2, messages) {
-    var _a, _b, _c, _d;
-    const handler = config2.streamResponse ? 'return (res)=>[res.split(/\\r?\\n/).map(line=>line.trim()).filter(line=>line.startsWith("data:")).map(line=>line.replace(/^data:\\s*/,"")).filter(line=>line&&line!=="[DONE]").map(line=>{try{const parsed=JSON.parse(line);return parsed?.choices?.[0]?.delta?.content||parsed?.choices?.[0]?.message?.content||""}catch(e){return ""}}).join(""),undefined]' : "return (res)=>[res?.choices?.[0]?.message?.content || res?.choices?.[0]?.text || JSON.stringify(res), undefined]";
-    const wrapper = {
-      name: "AI",
-      url: normalizeChatCompletionsURL(config2.baseURL),
-      homepage: "#",
-      method: "post",
+    const url = normalizeChatCompletionsURL(config2.baseURL);
+    const timeoutMs = Math.max(5, Number(config2.timeout) || 60) * 1e3;
+    const responsePromise = request(url, {
       type: "GM_xmlhttpRequest",
-      contentType: config2.streamResponse ? "text" : "json",
+      method: "post",
+      responseType: config2.streamResponse ? "text" : "json",
       headers: {
         Authorization: `Bearer ${config2.apiKey}`,
         "Content-Type": "application/json"
@@ -4600,14 +4604,22 @@ ${imagesText}` : "",
         temperature: config2.temperature,
         stream: config2.streamResponse,
         messages
-      },
-      handler
-    };
-    const infos = await defaultAnswerWrapperHandler([wrapper], {});
-    if ((_a = infos[0]) == null ? void 0 : _a.error) {
-      throw new Error(infos[0].error);
+      }
+    });
+    let timer;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("AI 请求超时，请增大“超时秒数”或检查网络/接口。")), timeoutMs);
+    });
+    try {
+      const raw = await Promise.race([responsePromise, timeoutPromise]);
+      return extractChatContent(raw, config2.streamResponse);
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(String(error));
+    } finally {
+      if (timer) {
+        clearTimeout(timer);
+      }
     }
-    return ((_d = (_c = (_b = infos[0]) == null ? void 0 : _b.results) == null ? void 0 : _c[0]) == null ? void 0 : _d.question) || "";
   }
   async function requestAiAnswer(config2, ctx) {
     const raw = await runChatCompletion(config2, createAiChatMessages(config2, ctx));

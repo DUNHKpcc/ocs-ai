@@ -1,4 +1,4 @@
-import { defaultAnswerWrapperHandler, SearchInformation } from '@ocsjs/core';
+import { request, SearchInformation } from '@ocsjs/core';
 import { AiProviderConfig, AiQuestionContext, ParsedAiAnswer } from './types';
 
 type AiChatMessage = {
@@ -244,19 +244,25 @@ export function createAiChatMessages(
 	];
 }
 
+function extractChatContent(raw: any, stream: boolean): string {
+	if (stream) {
+		// 流式：GM_xmlhttpRequest onload 给的是完整 SSE 文本，整体解析
+		return parseOpenAIStreamContent(typeof raw === 'string' ? raw : String(raw ?? ''));
+	}
+	// 非流式 JSON；解析不到内容时返回空串（而非把整个响应当答案）
+	return raw?.choices?.[0]?.message?.content || raw?.choices?.[0]?.text || '';
+}
+
 async function runChatCompletion(config: AiProviderConfig, messages: AiChatMessage[]) {
-	const handler = config.streamResponse
-		? 'return (res)=>[' +
-		  'res.split(/\\r?\\n/).map(line=>line.trim()).filter(line=>line.startsWith("data:")).map(line=>line.replace(/^data:\\s*/,"")).filter(line=>line&&line!=="[DONE]").map(line=>{try{const parsed=JSON.parse(line);return parsed?.choices?.[0]?.delta?.content||parsed?.choices?.[0]?.message?.content||""}catch(e){return ""}}).join(""),' +
-		  'undefined]'
-		: 'return (res)=>[res?.choices?.[0]?.message?.content || res?.choices?.[0]?.text || JSON.stringify(res), undefined]';
-	const wrapper = {
-		name: 'AI',
-		url: normalizeChatCompletionsURL(config.baseURL),
-		homepage: '#',
-		method: 'post' as const,
-		type: 'GM_xmlhttpRequest' as const,
-		contentType: config.streamResponse ? ('text' as const) : ('json' as const),
+	// 直接用 core 的 request（GM_xmlhttpRequest），不走 defaultAnswerWrapperHandler，
+	// 避免请求体里的 ${...} 被当作占位符替换成 "undefined"（题目含 ${ 时会被破坏）。
+	const url = normalizeChatCompletionsURL(config.baseURL);
+	const timeoutMs = Math.max(5, Number(config.timeout) || 60) * 1000;
+
+	const responsePromise = request(url, {
+		type: 'GM_xmlhttpRequest',
+		method: 'post',
+		responseType: config.streamResponse ? 'text' : 'json',
 		headers: {
 			Authorization: `Bearer ${config.apiKey}`,
 			'Content-Type': 'application/json'
@@ -266,15 +272,25 @@ async function runChatCompletion(config: AiProviderConfig, messages: AiChatMessa
 			temperature: config.temperature,
 			stream: config.streamResponse,
 			messages
-		},
-		handler
-	};
+		}
+	});
 
-	const infos = await defaultAnswerWrapperHandler([wrapper], {});
-	if (infos[0]?.error) {
-		throw new Error(infos[0].error);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error('AI 请求超时，请增大“超时秒数”或检查网络/接口。')), timeoutMs);
+	});
+
+	try {
+		const raw = await Promise.race([responsePromise, timeoutPromise]);
+		return extractChatContent(raw, config.streamResponse);
+	} catch (error) {
+		// request 在非 200 时会以 responseText（字符串）reject，统一包成 Error
+		throw error instanceof Error ? error : new Error(String(error));
+	} finally {
+		if (timer) {
+			clearTimeout(timer);
+		}
 	}
-	return infos[0]?.results?.[0]?.question || '';
 }
 
 export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionContext) {
