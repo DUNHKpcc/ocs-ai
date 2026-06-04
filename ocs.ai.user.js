@@ -5746,7 +5746,8 @@ ${imagesText}` : "",
       group.model = val;
       saveGroups();
     }, { placeholder: "gpt-4o-mini" });
-    const collapsed = !!cfg.providerCollapsed;
+    const collapseSetting = cfg.providerCollapsed;
+    const collapsed = collapseSetting === "" || collapseSetting === void 0 ? !!getRulePath(cfg) : collapseSetting === "1" || collapseSetting === true;
     const configured = !!(group.baseURL && group.apiKey && group.model);
     const header2 = lib.h(
       "div",
@@ -5766,7 +5767,7 @@ ${imagesText}` : "",
       ]
     );
     header2.onclick = () => {
-      cfg.providerCollapsed = !collapsed;
+      cfg.providerCollapsed = collapsed ? "0" : "1";
       renderPanel(panel, script2);
     };
     const tabsBar = lib.h(
@@ -5922,7 +5923,11 @@ ${imagesText}` : "",
       lib.$message.success({ content: "AI 答案缓存已清空。" });
       renderPanel(panel, script2);
     };
-    const copyButton = lib.$ui.copy("复制答案", answerText || "暂无答案");
+    const copyButton = lib.$ui.button("复制答案");
+    copyButton.onclick = () => {
+      navigator.clipboard.writeText(answerText || "暂无答案");
+      lib.$message.success({ content: "答案已复制。" });
+    };
     const fillButton = lib.$ui.button("填入答案");
     fillButton.disabled = !state$1.items.some((item) => item.answer) || cfg.mode !== "fill";
     fillButton.onclick = () => {
@@ -5936,6 +5941,26 @@ ${imagesText}` : "",
         content: state$1.items.length > 1 ? `已填入 ${okCount}/${results.length} 道题。` : ((_a2 = results[0]) == null ? void 0 : _a2.message) || "暂无答案"
       });
     };
+    const actionButtons = [
+      selectButton,
+      rectSelectButton,
+      recaptureButton,
+      startButton,
+      clearRegionButton,
+      clearButton,
+      copyButton,
+      fillButton
+    ];
+    for (const btn of actionButtons) {
+      Object.assign(btn.style, {
+        width: "100%",
+        margin: "0",
+        padding: "5px 4px",
+        fontSize: "12px",
+        whiteSpace: "nowrap",
+        boxSizing: "border-box"
+      });
+    }
     const detailNodes = state$1.items.length > 1 ? [
       lib.h("div", [
         lib.h("div", [lib.h("b", "识别："), `共 ${state$1.items.length} 道题`]),
@@ -5952,16 +5977,18 @@ ${imagesText}` : "",
     panel.body.replaceChildren(
       lib.h("div", { className: "ocs-ai-answer-card", style: { overflowWrap: "anywhere", wordBreak: "break-word" } }, [
         lib.h("div", regionStatus),
-        lib.h("div", { style: { marginTop: "8px", display: "flex", gap: "6px", flexWrap: "wrap" } }, [
-          selectButton,
-          rectSelectButton,
-          recaptureButton,
-          startButton,
-          clearRegionButton,
-          clearButton,
-          copyButton,
-          fillButton
-        ]),
+        lib.h(
+          "div",
+          {
+            style: {
+              marginTop: "8px",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))",
+              gap: "6px"
+            }
+          },
+          actionButtons
+        ),
         lib.h("hr"),
         renderProviderGroupEditor(cfg, script2, panel),
         lib.h("hr"),
@@ -6205,7 +6232,7 @@ ${imagesText}` : "",
           defaultValue: JSON.stringify(createDefaultGroups())
         },
         providerCollapsed: {
-          defaultValue: false
+          defaultValue: ""
         },
         imageMode: {
           label: "图片发送方式",

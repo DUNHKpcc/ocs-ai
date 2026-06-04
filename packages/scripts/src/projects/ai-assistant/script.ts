@@ -299,7 +299,12 @@ function renderProviderGroupEditor(cfg: any, script: Script, panel: any) {
 		saveGroups();
 	}, { placeholder: 'gpt-4o-mini' });
 
-	const collapsed = !!cfg.providerCollapsed;
+	const collapseSetting = cfg.providerCollapsed;
+	// 默认（未手动设置）：已保存题目区域时折叠，否则展开；手动后用 '1'/'0' 记忆
+	const collapsed =
+		collapseSetting === '' || collapseSetting === undefined
+			? !!getRulePath(cfg)
+			: collapseSetting === '1' || collapseSetting === true;
 	const configured = !!(group.baseURL && group.apiKey && group.model);
 
 	// 可点击的标题栏：折叠/展开供应商配置
@@ -321,7 +326,7 @@ function renderProviderGroupEditor(cfg: any, script: Script, panel: any) {
 		]
 	);
 	header.onclick = () => {
-		cfg.providerCollapsed = !collapsed;
+		cfg.providerCollapsed = collapsed ? '0' : '1';
 		renderPanel(panel, script);
 	};
 
@@ -496,7 +501,11 @@ function renderPanel(panel: any, script: Script) {
 		renderPanel(panel, script);
 	};
 
-	const copyButton = $ui.copy('复制答案', answerText || '暂无答案');
+	const copyButton = $ui.button('复制答案');
+	copyButton.onclick = () => {
+		navigator.clipboard.writeText(answerText || '暂无答案');
+		$message.success({ content: '答案已复制。' });
+	};
 	const fillButton = $ui.button('填入答案');
 	fillButton.disabled = !state.items.some((item) => item.answer) || cfg.mode !== 'fill';
 	fillButton.onclick = () => {
@@ -509,6 +518,28 @@ function renderPanel(panel: any, script: Script) {
 			content: state.items.length > 1 ? `已填入 ${okCount}/${results.length} 道题。` : results[0]?.message || '暂无答案'
 		});
 	};
+
+	// 统一按钮尺寸，配合网格布局保持紧凑、对齐
+	const actionButtons = [
+		selectButton,
+		rectSelectButton,
+		recaptureButton,
+		startButton,
+		clearRegionButton,
+		clearButton,
+		copyButton,
+		fillButton
+	];
+	for (const btn of actionButtons) {
+		Object.assign((btn as HTMLElement).style, {
+			width: '100%',
+			margin: '0',
+			padding: '5px 4px',
+			fontSize: '12px',
+			whiteSpace: 'nowrap',
+			boxSizing: 'border-box'
+		});
+	}
 
 	const detailNodes =
 		state.items.length > 1
@@ -530,16 +561,18 @@ function renderPanel(panel: any, script: Script) {
 	panel.body.replaceChildren(
 		h('div', { className: 'ocs-ai-answer-card', style: { overflowWrap: 'anywhere', wordBreak: 'break-word' } }, [
 			h('div', regionStatus),
-			h('div', { style: { marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
-				selectButton,
-				rectSelectButton,
-				recaptureButton,
-				startButton,
-				clearRegionButton,
-				clearButton,
-				copyButton,
-				fillButton
-			]),
+			h(
+				'div',
+				{
+					style: {
+						marginTop: '8px',
+						display: 'grid',
+						gridTemplateColumns: 'repeat(auto-fit, minmax(104px, 1fr))',
+						gap: '6px'
+					}
+				},
+				actionButtons
+			),
 			h('hr'),
 			renderProviderGroupEditor(cfg, script, panel),
 			h('hr'),
@@ -796,7 +829,8 @@ export function createAiAnswerAssistantScript() {
 			},
 			providerCollapsed: {
 				// 隐藏存储项：供应商配置区是否折叠
-				defaultValue: false
+				// ''=自动（已保存题目区域时默认折叠）；'1'=手动折叠；'0'=手动展开
+				defaultValue: ''
 			},
 			imageMode: {
 				label: '图片发送方式',
