@@ -9,7 +9,26 @@
 
 </div>
 
-> **🔑 没有 API Key？推荐使用 [api.dpccgaming.xyz](https://api.dpccgaming.xyz) 获取 Token，支持多种多模态模型，开箱即用。**
+<div align="center">
+
+### 🔑 没有 API Key？推荐使用 [**api.dpccgaming.xyz**](https://api.dpccgaming.xyz) 获取 Token，开箱即用
+
+**可用多模态模型：**
+
+<table>
+<tr>
+<td align="center" width="200">
+<img src="assets/logo-openai.svg" height="30" alt="OpenAI"/><br/>
+<b>GPT-5.5</b>
+</td>
+<td align="center" width="200">
+<img src="assets/logo-claude.svg" height="30" alt="Claude"/><br/>
+<b>Claude Opus 4.8</b>
+</td>
+</tr>
+</table>
+
+</div>
 
 ---
 
