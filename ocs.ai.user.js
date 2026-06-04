@@ -5785,9 +5785,47 @@ ${imagesText}` : "",
     }
     return lib.h("div", { style: { margin: "4px 0" } }, [header2, tabsBar, nameField, urlField, keyField, modelField]);
   }
+  function applySettingsCollapse(panel, script2) {
+    const cfg = script2.cfg;
+    const container2 = panel.configsContainer;
+    if (!container2) {
+      return;
+    }
+    const body = container2.querySelector(".configs-body");
+    if (!body) {
+      return;
+    }
+    const setting = cfg.settingsCollapsed;
+    const collapsed = setting === "" || setting === void 0 ? !!getRulePath(cfg) : setting === "1" || setting === true;
+    body.style.display = collapsed ? "none" : "";
+    let bar = container2.querySelector(".ocs-ai-settings-toggle");
+    if (!bar) {
+      bar = lib.h("div", { className: "ocs-ai-settings-toggle" });
+      Object.assign(bar.style, {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        cursor: "pointer",
+        userSelect: "none",
+        fontSize: "12px",
+        color: "#6b7280",
+        padding: "4px 2px"
+      });
+      container2.prepend(bar);
+    }
+    bar.replaceChildren(
+      lib.h("span", "⚙️ 脚本设置"),
+      lib.h("span", { style: { color: "#2563eb" } }, collapsed ? "展开 ▸" : "收起 ▾")
+    );
+    bar.onclick = () => {
+      cfg.settingsCollapsed = collapsed ? "0" : "1";
+      renderPanel(panel, script2);
+    };
+  }
   function renderPanel(panel, script2) {
     var _a, _b, _c, _d;
     applyPanelLayout(panel);
+    applySettingsCollapse(panel, script2);
     const cfg = script2.cfg;
     const regionPath = getRulePath(cfg);
     const regionStatus = regionPath ? `已保存区域：${regionPath}` : "未选择题目区域";
@@ -6232,6 +6270,9 @@ ${imagesText}` : "",
           defaultValue: JSON.stringify(createDefaultGroups())
         },
         providerCollapsed: {
+          defaultValue: ""
+        },
+        settingsCollapsed: {
           defaultValue: ""
         },
         imageMode: {

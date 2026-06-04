@@ -351,8 +351,52 @@ function renderProviderGroupEditor(cfg: any, script: Script, panel: any) {
 	return h('div', { style: { margin: '4px 0' } }, [header, tabsBar, nameField, urlField, keyField, modelField]);
 }
 
+/** 给框架的设置区（configsContainer）加一个可折叠标题栏 */
+function applySettingsCollapse(panel: any, script: Script) {
+	const cfg = script.cfg as any;
+	const container = panel.configsContainer as HTMLElement | undefined;
+	if (!container) {
+		return;
+	}
+	const body = container.querySelector('.configs-body') as HTMLElement | null;
+	if (!body) {
+		return;
+	}
+	const setting = cfg.settingsCollapsed;
+	// 默认（未手动设置）：已保存题目区域时折叠；手动后记忆 '1'/'0'
+	const collapsed =
+		setting === '' || setting === undefined ? !!getRulePath(cfg) : setting === '1' || setting === true;
+
+	body.style.display = collapsed ? 'none' : '';
+
+	let bar = container.querySelector('.ocs-ai-settings-toggle') as HTMLElement | null;
+	if (!bar) {
+		bar = h('div', { className: 'ocs-ai-settings-toggle' }) as HTMLElement;
+		Object.assign(bar.style, {
+			display: 'flex',
+			justifyContent: 'space-between',
+			alignItems: 'center',
+			cursor: 'pointer',
+			userSelect: 'none',
+			fontSize: '12px',
+			color: '#6b7280',
+			padding: '4px 2px'
+		});
+		container.prepend(bar);
+	}
+	bar.replaceChildren(
+		h('span', '⚙️ 脚本设置'),
+		h('span', { style: { color: '#2563eb' } }, collapsed ? '展开 ▸' : '收起 ▾')
+	);
+	bar.onclick = () => {
+		cfg.settingsCollapsed = collapsed ? '0' : '1';
+		renderPanel(panel, script);
+	};
+}
+
 function renderPanel(panel: any, script: Script) {
 	applyPanelLayout(panel);
+	applySettingsCollapse(panel, script);
 	const cfg = script.cfg as any;
 	const regionPath = getRulePath(cfg);
 	const regionStatus = regionPath ? `已保存区域：${regionPath}` : '未选择题目区域';
@@ -830,6 +874,10 @@ export function createAiAnswerAssistantScript() {
 			providerCollapsed: {
 				// 隐藏存储项：供应商配置区是否折叠
 				// ''=自动（已保存题目区域时默认折叠）；'1'=手动折叠；'0'=手动展开
+				defaultValue: ''
+			},
+			settingsCollapsed: {
+				// 隐藏存储项：脚本设置区（模式/快捷键/温度等）是否折叠，规则同上
 				defaultValue: ''
 			},
 			imageMode: {
