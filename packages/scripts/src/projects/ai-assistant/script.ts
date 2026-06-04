@@ -32,11 +32,22 @@ function createDefaultGroups(): ProviderGroup[] {
 	}));
 }
 
+function normalizeGroup(raw: any, index: number): ProviderGroup {
+	const g = raw && typeof raw === 'object' ? raw : {};
+	return {
+		name: typeof g.name === 'string' && g.name ? g.name : `供应商 ${index + 1}`,
+		baseURL: typeof g.baseURL === 'string' ? g.baseURL : '',
+		apiKey: typeof g.apiKey === 'string' ? g.apiKey : '',
+		model: typeof g.model === 'string' ? g.model : ''
+	};
+}
+
 function getProviderGroups(cfg: any): ProviderGroup[] {
 	try {
 		const groups = typeof cfg.providerGroups === 'string' ? JSON.parse(cfg.providerGroups) : cfg.providerGroups;
-		if (Array.isArray(groups) && groups.length === PROVIDER_GROUP_COUNT) {
-			return groups;
+		if (Array.isArray(groups) && groups.length) {
+			// 规整每一项，缺字段/脏数据时回退默认，避免渲染期 TypeError
+			return Array.from({ length: PROVIDER_GROUP_COUNT }, (_, i) => normalizeGroup(groups[i], i));
 		}
 	} catch (_) {
 		/* ignore parse error */
@@ -218,7 +229,8 @@ function createInputField(
 			fontSize: '12px'
 		}
 	}) as HTMLInputElement;
-	input.addEventListener('change', () => onChange(input.value));
+	// 用 input 实时保存：避免切换标签页/截图时丢失尚未 blur 的编辑
+	input.addEventListener('input', () => onChange(input.value));
 	return h('div', { style: { marginBottom: '6px' } }, [
 		h('div', { style: { fontSize: '12px', color: '#374151', marginBottom: '2px' } }, label),
 		input
@@ -262,7 +274,8 @@ function renderProviderGroupEditor(cfg: any, script: Script, panel: any) {
 	const nameField = createInputField('名称', group.name, (val) => {
 		group.name = val;
 		saveGroups();
-		renderPanel(panel, script);
+		// 就地更新当前标签页文字，不整体重渲染，避免输入时焦点丢失
+		tabs[activeIdx].textContent = val || `供应商 ${activeIdx + 1}`;
 	}, { placeholder: `供应商 ${activeIdx + 1}` });
 
 	const urlField = createInputField('Base URL', group.baseURL, (val) => {
@@ -571,8 +584,9 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 	if (!state.screenshotRect) {
 		return;
 	}
-	if (!cfg.baseURL || !cfg.apiKey || !cfg.model) {
-		state.error = '请先配置 OpenAI 兼容接口、API Key 和模型。';
+	const provider = getActiveProvider(cfg);
+	if (!provider.baseURL || !provider.apiKey || !provider.model) {
+		state.error = '请先配置当前供应商的 Base URL、API Key 和模型。';
 		onStateChange?.();
 		return;
 	}
@@ -773,6 +787,11 @@ export function createAiAnswerAssistantScript() {
 			if (window.top !== window.self) {
 				return;
 			}
+			// oncomplete 可能在多次 readystate=complete 时被重复调用，防止重复注册键盘监听
+			if ((window as any).__ocsAiHotkeyBound) {
+				return;
+			}
+			(window as any).__ocsAiHotkeyBound = true;
 			const script = this as unknown as Script;
 			const rerender = () => {
 				const panel = (script as any).panel;

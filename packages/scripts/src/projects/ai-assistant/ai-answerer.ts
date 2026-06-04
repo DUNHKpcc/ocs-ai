@@ -25,7 +25,10 @@ export function parseAiAnswerContent(content: string): ParsedAiAnswer {
 		}
 	}
 
-	const answerMatch = trimmed.match(/(?:^|\n)\s*(?:答案|answer)\s*[:：]\s*([A-Ha-h]|正确|错误|对|错|是|否|.+?)(?:\n|$)/i);
+	// 注意：多选答案如 "ABC" 需整体捕获，[A-Ha-h]+ 放在前面避免只取首字母
+	const answerMatch = trimmed.match(
+		/(?:^|\n)\s*(?:答案|answer)\s*[:：]\s*([A-Ha-h]+(?![^\s#,，、])|正确|错误|对|错|是|否|.+?)(?:\n|$)/i
+	);
 	const explanationMatch = trimmed.match(/(?:^|\n)\s*(?:解析|explanation)\s*[:：]\s*([\s\S]*)/i);
 	const answer = (answerMatch?.[1] || trimmed.split('\n')[0] || '').trim();
 	return {

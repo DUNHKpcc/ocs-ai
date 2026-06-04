@@ -2958,6 +2958,7 @@
     name: "🖼️ 窗口设置"
   });
   let sharedStream;
+  let pendingStream;
   function stopSharedStream() {
     if (sharedStream) {
       for (const track of sharedStream.getTracks()) {
@@ -2973,47 +2974,81 @@
     if (isStreamActive(sharedStream)) {
       return sharedStream;
     }
+    if (pendingStream) {
+      return pendingStream;
+    }
     stopSharedStream();
     const mediaDevices = navigator.mediaDevices;
     if (!(mediaDevices == null ? void 0 : mediaDevices.getDisplayMedia)) {
       throw new Error("当前浏览器不支持屏幕截图（getDisplayMedia）。");
     }
-    const stream = await mediaDevices.getDisplayMedia({
-      preferCurrentTab: true,
-      video: {
-        displaySurface: "browser"
-      },
-      audio: false
-    });
-    const [track] = stream.getVideoTracks();
-    if (track) {
-      track.addEventListener("ended", stopSharedStream);
+    pendingStream = (async () => {
+      const stream = await mediaDevices.getDisplayMedia({
+        preferCurrentTab: true,
+        video: {
+          displaySurface: "browser"
+        },
+        audio: false
+      });
+      const [track] = stream.getVideoTracks();
+      if (track) {
+        track.addEventListener("ended", stopSharedStream);
+      }
+      sharedStream = stream;
+      return stream;
+    })();
+    try {
+      return await pendingStream;
+    } finally {
+      pendingStream = void 0;
     }
-    sharedStream = stream;
-    return stream;
+  }
+  function withTimeout(promise, ms, message2) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message2)), ms);
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    });
   }
   async function grabFrame(stream) {
     const video = document.createElement("video");
     video.muted = true;
     video.playsInline = true;
     video.srcObject = stream;
-    await new Promise((resolve, reject) => {
-      const onLoaded = () => resolve();
-      video.addEventListener("loadedmetadata", onLoaded, { once: true });
-      video.addEventListener("error", () => reject(new Error("截图视频帧加载失败。")), { once: true });
-    });
+    await withTimeout(
+      new Promise((resolve, reject) => {
+        video.addEventListener("loadedmetadata", () => resolve(), { once: true });
+        video.addEventListener("error", () => reject(new Error("截图视频帧加载失败。")), { once: true });
+      }),
+      5e3,
+      "截图加载超时，请重试。"
+    );
+    let played = true;
     try {
       await video.play();
     } catch (error) {
+      played = false;
     }
-    await new Promise((resolve) => {
-      const anyVideo = video;
-      if (typeof anyVideo.requestVideoFrameCallback === "function") {
-        anyVideo.requestVideoFrameCallback(() => resolve());
-      } else {
-        requestAnimationFrame(() => resolve());
-      }
-    });
+    await withTimeout(
+      new Promise((resolve) => {
+        const anyVideo = video;
+        if (played && typeof anyVideo.requestVideoFrameCallback === "function") {
+          anyVideo.requestVideoFrameCallback(() => resolve());
+        } else {
+          requestAnimationFrame(() => resolve());
+        }
+      }),
+      5e3,
+      "截图取帧超时，请重试。"
+    );
     return video;
   }
   async function captureViewportRect(rect) {
@@ -3022,31 +3057,39 @@
     }
     const stream = await getDisplayStream();
     const video = await grabFrame(stream);
-    const frameW = video.videoWidth;
-    const frameH = video.videoHeight;
-    if (!frameW || !frameH) {
-      throw new Error("未能获取截图画面。");
+    try {
+      const frameW = video.videoWidth;
+      const frameH = video.videoHeight;
+      if (!frameW || !frameH) {
+        throw new Error("未能获取截图画面。");
+      }
+      const frameRatio = frameW / frameH;
+      const viewRatio = window.innerWidth / window.innerHeight;
+      if (Math.abs(frameRatio - viewRatio) > 0.1) {
+        throw new Error("截图区域与页面不匹配，请在共享弹窗中选择“此标签页”后重试。");
+      }
+      const scaleX = frameW / window.innerWidth;
+      const scaleY = frameH / window.innerHeight;
+      const sx = Math.max(0, Math.round(rect.left * scaleX));
+      const sy = Math.max(0, Math.round(rect.top * scaleY));
+      const sw = Math.min(frameW - sx, Math.round(rect.width * scaleX));
+      const sh = Math.min(frameH - sy, Math.round(rect.height * scaleY));
+      if (sw < 1 || sh < 1) {
+        throw new Error("框选区域超出可视范围，无法截图。");
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = sw;
+      canvas.height = sh;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("无法创建截图画布。");
+      }
+      context.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+      return canvas.toDataURL("image/jpeg", 0.92);
+    } finally {
+      video.pause();
+      video.srcObject = null;
     }
-    const scaleX = frameW / window.innerWidth;
-    const scaleY = frameH / window.innerHeight;
-    const sx = Math.max(0, Math.round(rect.left * scaleX));
-    const sy = Math.max(0, Math.round(rect.top * scaleY));
-    const sw = Math.min(frameW - sx, Math.round(rect.width * scaleX));
-    const sh = Math.min(frameH - sy, Math.round(rect.height * scaleY));
-    if (sw < 1 || sh < 1) {
-      throw new Error("框选区域超出可视范围，无法截图。");
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = sw;
-    canvas.height = sh;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("无法创建截图画布。");
-    }
-    context.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-    video.pause();
-    video.srcObject = null;
-    return canvas.toDataURL("image/jpeg", 0.92);
   }
   function releaseCaptureStream() {
     stopSharedStream();
@@ -4357,7 +4400,9 @@
         return parsed;
       }
     }
-    const answerMatch = trimmed.match(/(?:^|\n)\s*(?:答案|answer)\s*[:：]\s*([A-Ha-h]|正确|错误|对|错|是|否|.+?)(?:\n|$)/i);
+    const answerMatch = trimmed.match(
+      /(?:^|\n)\s*(?:答案|answer)\s*[:：]\s*([A-Ha-h]+(?![^\s#,，、])|正确|错误|对|错|是|否|.+?)(?:\n|$)/i
+    );
     const explanationMatch = trimmed.match(/(?:^|\n)\s*(?:解析|explanation)\s*[:：]\s*([\s\S]*)/i);
     const answer = ((answerMatch == null ? void 0 : answerMatch[1]) || trimmed.split("\n")[0] || "").trim();
     return {
@@ -5489,11 +5534,20 @@ ${imagesText}` : "",
       model: ""
     }));
   }
+  function normalizeGroup(raw, index) {
+    const g = raw && typeof raw === "object" ? raw : {};
+    return {
+      name: typeof g.name === "string" && g.name ? g.name : `供应商 ${index + 1}`,
+      baseURL: typeof g.baseURL === "string" ? g.baseURL : "",
+      apiKey: typeof g.apiKey === "string" ? g.apiKey : "",
+      model: typeof g.model === "string" ? g.model : ""
+    };
+  }
   function getProviderGroups(cfg) {
     try {
       const groups = typeof cfg.providerGroups === "string" ? JSON.parse(cfg.providerGroups) : cfg.providerGroups;
-      if (Array.isArray(groups) && groups.length === PROVIDER_GROUP_COUNT) {
-        return groups;
+      if (Array.isArray(groups) && groups.length) {
+        return Array.from({ length: PROVIDER_GROUP_COUNT }, (_, i) => normalizeGroup(groups[i], i));
       }
     } catch (_) {
     }
@@ -5624,7 +5678,7 @@ ${imagesText}` : "",
         fontSize: "12px"
       }
     });
-    input.addEventListener("change", () => onChange(input.value));
+    input.addEventListener("input", () => onChange(input.value));
     return lib.h("div", { style: { marginBottom: "6px" } }, [
       lib.h("div", { style: { fontSize: "12px", color: "#374151", marginBottom: "2px" } }, label),
       input
@@ -5662,7 +5716,7 @@ ${imagesText}` : "",
     const nameField = createInputField("名称", group.name, (val) => {
       group.name = val;
       saveGroups();
-      renderPanel(panel, script2);
+      tabs[activeIdx].textContent = val || `供应商 ${activeIdx + 1}`;
     }, { placeholder: `供应商 ${activeIdx + 1}` });
     const urlField = createInputField("Base URL", group.baseURL, (val) => {
       group.baseURL = val;
@@ -5950,8 +6004,9 @@ ${imagesText}` : "",
     if (!state$1.screenshotRect) {
       return;
     }
-    if (!cfg.baseURL || !cfg.apiKey || !cfg.model) {
-      state$1.error = "请先配置 OpenAI 兼容接口、API Key 和模型。";
+    const provider = getActiveProvider(cfg);
+    if (!provider.baseURL || !provider.apiKey || !provider.model) {
+      state$1.error = "请先配置当前供应商的 Base URL、API Key 和模型。";
       onStateChange == null ? void 0 : onStateChange();
       return;
     }
@@ -6139,6 +6194,10 @@ ${imagesText}` : "",
         if (window.top !== window.self) {
           return;
         }
+        if (window.__ocsAiHotkeyBound) {
+          return;
+        }
+        window.__ocsAiHotkeyBound = true;
         const script2 = this;
         const rerender = () => {
           const panel = script2.panel;
