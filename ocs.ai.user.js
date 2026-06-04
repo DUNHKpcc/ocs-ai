@@ -5660,7 +5660,11 @@ ${imagesText}` : "",
       maxWidth: "100%",
       overflowX: "hidden"
     });
-    const controls = Array.from(panel.configsContainer.querySelectorAll("input,select,textarea"));
+    const controls = Array.from(
+      panel.configsContainer.querySelectorAll(
+        'input:not([type="checkbox"]):not([type="radio"]),select,textarea'
+      )
+    );
     for (const element of controls) {
       Object.assign(element.style, {
         boxSizing: "border-box",

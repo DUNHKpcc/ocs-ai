@@ -193,7 +193,13 @@ function applyPanelLayout(panel: any) {
 		maxWidth: '100%',
 		overflowX: 'hidden'
 	});
-	const controls = Array.from(panel.configsContainer.querySelectorAll('input,select,textarea')) as HTMLElement[];
+	// 排除复选框/单选框：它们被样式成左右滑动的开关（需要 min-width:36px），
+	// 不能被这里的 minWidth:0 覆盖，否则开关会被压扁、显示异常。
+	const controls = Array.from(
+		panel.configsContainer.querySelectorAll(
+			'input:not([type="checkbox"]):not([type="radio"]),select,textarea'
+		)
+	) as HTMLElement[];
 	for (const element of controls) {
 		Object.assign(element.style, {
 			boxSizing: 'border-box',
