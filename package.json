@@ -1,6 +1,6 @@
 {
 	"name": "ocs-ai",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"description": "DPCC-OCS-AI - 任意网页 AI 答题助手（截图搜题）",
 	"types": "./lib/src/core/index.d.ts",
 	"main": "./lib/src/core/index.js",
