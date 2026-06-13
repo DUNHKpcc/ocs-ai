@@ -29,7 +29,7 @@ if (
 	return;
 }
 
-const { start, CommonProject, BackgroundProject, RenderScript } = OCS;
+const { start, $elements, CommonProject, BackgroundProject, RenderScript } = OCS;
 
 const infos = GM_info;
 
@@ -46,4 +46,17 @@ const infos = GM_info;
 		},
 		updatePage: 'https://github.com/DUNHKpcc/ocs-ai-'
 	});
+
+	const waitForHeader = setInterval(() => {
+		if (!$elements.root) return;
+		const profile = $elements.root.querySelector('.profile');
+		if (profile) {
+			clearInterval(waitForHeader);
+			const logo = document.createElement('img');
+			logo.src = 'http://cdn.dpccgaming.xyz/logo.png';
+			logo.className = 'logo';
+			logo.style.marginRight = '4px';
+			profile.parentElement.insertBefore(logo, profile);
+		}
+	}, 200);
 })();
