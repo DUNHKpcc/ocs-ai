@@ -9,18 +9,11 @@
 		"dist"
 	],
 	"scripts": {
-		"dev": "gulp -f ./scripts/dev-core.js & npm run changelog:simplify",
+		"dev": "gulp -f ./scripts/dev-core.js",
 		"build": "gulp -f ./scripts/build-core.js",
 		"tsc": "pnpm lint && gulp -f ./scripts/tsc.js",
 		"lint": "pnpm format && eslint  ./packages --ext .ts,.tsx,.js,.jsx --fix",
-		"format": "prettier -c ./.prettierrc.json  **/*.ts  **/*.js  **/*.css  --write",
-		"release": "sh ./scripts/release.sh",
-		"pub:minor": "npm version minor && pnpm build:core && npm publish",
-		"pub:major": "npm version major && pnpm build:core && npm publish",
-		"changelog:simplify": "gulp -f ./scripts/simplify_changelog.js",
-		"changelog": "conventional-changelog -p angular -i CHANGELOG.md --same-file -r 0",
-		"changelog:current": "conventional-changelog -p angular -o CHANGELOG_CURRENT.md -r 1",
-		"init-commitizen": "commitizen init cz-conventional-changelog --save --save-exact"
+		"format": "prettier -c ./.prettierrc.json  **/*.ts  **/*.js  **/*.css  --write"
 	},
 	"devDependencies": {
 		"@html-eslint/eslint-plugin": "^0.15.0",
