@@ -24,7 +24,7 @@
 // @source     				https://github.com/DUNHKpcc/ocs-ai-
 // @downloadURL				https://raw.githubusercontent.com/DUNHKpcc/ocs-ai-/ai-answer-assistant/ocs.ai.user.js
 // @updateURL  				https://raw.githubusercontent.com/DUNHKpcc/ocs-ai-/ai-answer-assistant/ocs.ai.user.js
-// @icon       				https://cdn.ocsjs.com/logo.png
+// @icon       				http://cdn.dpccgaming.xyz/logo.png
 // @connect    				*
 // @antifeature				payment
 // ==/UserScript==
