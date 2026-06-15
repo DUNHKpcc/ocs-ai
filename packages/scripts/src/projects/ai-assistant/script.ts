@@ -23,6 +23,31 @@ interface ProviderGroup {
 	model: string;
 }
 
+interface RecommendedModel {
+	/** 展示名 */
+	label: string;
+	/** 实际发给 API 的模型 ID */
+	model: string;
+}
+
+interface RecommendedProvider {
+	name: string;
+	baseURL: string;
+	models: RecommendedModel[];
+}
+
+/** 推荐供应商（与 README 一致）：点一下即可把 Base URL + 模型填入当前供应商 */
+const RECOMMENDED_PROVIDERS: RecommendedProvider[] = [
+	{
+		name: 'dpccgaming',
+		baseURL: 'https://api.dpccgaming.xyz/v1',
+		models: [
+			{ label: 'GPT-5.5', model: 'gpt-5.5' },
+			{ label: 'Claude Opus 4.8', model: 'claude-opus-4-8' }
+		]
+	}
+];
+
 function createDefaultGroups(): ProviderGroup[] {
 	return Array.from({ length: PROVIDER_GROUP_COUNT }, (_, i) => ({
 		name: `供应商 ${i + 1}`,
@@ -243,6 +268,46 @@ function createInputField(
 	]);
 }
 
+/** 推荐供应商区：每个推荐模型一个胶囊按钮，点一下把 Base URL + 模型填入当前供应商 */
+function renderRecommendation(group: ProviderGroup, saveGroups: () => void, panel: any, script: Script) {
+	const chips: any[] = [];
+	for (const provider of RECOMMENDED_PROVIDERS) {
+		for (const m of provider.models) {
+			const active = group.baseURL === provider.baseURL && group.model === m.model;
+			const chip = h(
+				'span',
+				{
+					style: {
+						display: 'inline-block',
+						padding: '3px 10px',
+						marginRight: '6px',
+						marginBottom: '4px',
+						fontSize: '12px',
+						cursor: 'pointer',
+						borderRadius: '12px',
+						border: active ? '1px solid #2563eb' : '1px solid #d1d5db',
+						color: active ? '#2563eb' : '#374151',
+						background: active ? '#eff6ff' : '#fff'
+					}
+				},
+				m.label
+			);
+			chip.onclick = () => {
+				group.baseURL = provider.baseURL;
+				group.model = m.model;
+				saveGroups();
+				$message.success({ content: `已填入推荐供应商：${m.label}（请补全 API Key）` });
+				renderPanel(panel, script);
+			};
+			chips.push(chip);
+		}
+	}
+	return h('div', { style: { marginBottom: '6px' } }, [
+		h('div', { style: { fontSize: '12px', color: '#374151', marginBottom: '2px' } }, '💡 供应商推荐（点击一键填入）'),
+		h('div', {}, chips)
+	]);
+}
+
 function renderProviderGroupEditor(cfg: any, script: Script, panel: any) {
 	const groups = getProviderGroups(cfg);
 	const activeIdx = getActiveGroupIndex(cfg);
@@ -348,7 +413,17 @@ function renderProviderGroupEditor(cfg: any, script: Script, panel: any) {
 		return h('div', { style: { margin: '4px 0' } }, [header, tabsBar, summary]);
 	}
 
-	return h('div', { style: { margin: '4px 0' } }, [header, tabsBar, nameField, urlField, keyField, modelField]);
+	const recommendation = renderRecommendation(group, saveGroups, panel, script);
+
+	return h('div', { style: { margin: '4px 0' } }, [
+		header,
+		tabsBar,
+		recommendation,
+		nameField,
+		urlField,
+		keyField,
+		modelField
+	]);
 }
 
 /** 给框架的设置区（configsContainer）加一个可折叠标题栏 */

@@ -1,10 +1,12 @@
 <div align="center">
 
-# 🤖 DPCC-OCS-AI
+<img src="http://cdn.dpccgaming.xyz/logo.png" width="96" height="96" alt="DPCC-OCS-AI logo"/>
+
+# DPCC-OCS-AI
 
 > 任意网页 **AI 答题助手**：拖拽框选 → 真实截图 → 多模态 AI 看图作答
 
-![version](https://img.shields.io/badge/version-1.0.0-blue)
+![version](https://img.shields.io/badge/version-1.0.5-blue)
 ![userscript](https://img.shields.io/badge/userscript-Tampermonkey-success)
 
 </div>
@@ -60,7 +62,7 @@
 |---|---|
 | **Base URL** | OpenAI 兼容接口地址，如 `https://api.openai.com/v1` 或中转地址 |
 | **API Key** | 你的密钥 |
-| **模型** | 需**支持图片（多模态）**，如 `gpt-4o-mini`、`gpt-4o` |
+| **模型** | 需**支持图片（多模态）**，如 `gpt-5.5`、`gpt-5.4` |
 
 ## 🖱️ 用法
 
