@@ -76,11 +76,11 @@ export function calculateEdgeAutoScrollDelta(clientY: number, viewportHeight: nu
 	const clampedY = Math.max(0, Math.min(height, clientY));
 	if (clampedY > height - edgeSize) {
 		const proximity = (clampedY - (height - edgeSize)) / edgeSize;
-		return Math.ceil(12 + proximity * 116);
+		return Math.ceil(6 + proximity * 58);
 	}
 	if (clampedY < edgeSize) {
 		const proximity = (edgeSize - clampedY) / edgeSize;
-		return -Math.ceil(12 + proximity * 116);
+		return -Math.ceil(6 + proximity * 58);
 	}
 	return 0;
 }

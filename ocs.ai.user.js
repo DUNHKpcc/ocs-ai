@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name       				DPCC-OCS-AI
-// @version    				1.0.9
+// @version    				1.0.10
 // @description				OCS AI answer assistant for arbitrary websites with manual region selection.
 // @author     				enncy
 // @license    				MIT
@@ -4526,11 +4526,11 @@ ${imagesText}` : "",
     const clampedY = Math.max(0, Math.min(height, clientY));
     if (clampedY > height - edgeSize) {
       const proximity = (clampedY - (height - edgeSize)) / edgeSize;
-      return Math.ceil(12 + proximity * 116);
+      return Math.ceil(6 + proximity * 58);
     }
     if (clampedY < edgeSize) {
       const proximity = (edgeSize - clampedY) / edgeSize;
-      return -Math.ceil(12 + proximity * 116);
+      return -Math.ceil(6 + proximity * 58);
     }
     return 0;
   }
