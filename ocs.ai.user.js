@@ -20,10 +20,10 @@
 // @grant      				GM_removeValueChangeListener
 // @run-at     				document-start
 // @namespace  				https://enncy.cn
-// @homepage   				https://github.com/DUNHKpcc/ocs-ai-
-// @source     				https://github.com/DUNHKpcc/ocs-ai-
-// @downloadURL				https://raw.githubusercontent.com/DUNHKpcc/ocs-ai-/ai-answer-assistant/ocs.ai.user.js
-// @updateURL  				https://raw.githubusercontent.com/DUNHKpcc/ocs-ai-/ai-answer-assistant/ocs.ai.user.js
+// @homepage   				https://github.com/DUNHKpcc/ocs-ai
+// @source     				https://github.com/DUNHKpcc/ocs-ai
+// @downloadURL				https://raw.githubusercontent.com/DUNHKpcc/ocs-ai/ai-answer-assistant/ocs.ai.user.js
+// @updateURL  				https://raw.githubusercontent.com/DUNHKpcc/ocs-ai/ai-answer-assistant/ocs.ai.user.js
 // @icon       				http://cdn.dpccgaming.xyz/logo.png
 // @connect    				*
 // @antifeature				payment
