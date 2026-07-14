@@ -32,6 +32,7 @@ export interface ParsedAiAnswer {
 
 export interface ParsedAiBatchAnswerItem extends ParsedAiAnswer {
 	index: number;
+	question?: string;
 }
 
 export interface AiProviderConfig {

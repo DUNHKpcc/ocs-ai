@@ -5,8 +5,12 @@ export interface ViewportRect {
 	height: number;
 }
 
+export interface LongScreenshotRect extends ViewportRect {
+	documentTop: number;
+	documentBottom: number;
+}
+
 export interface LongScreenshotOptions {
-	maxFrames: number;
 	onFrame?: (count: number) => void;
 }
 
@@ -173,38 +177,112 @@ function waitForPagePaint() {
 	});
 }
 
+function loadScreenshotImage(url: string) {
+	return new Promise<HTMLImageElement>((resolve, reject) => {
+		const image = new Image();
+		image.onload = () => resolve(image);
+		image.onerror = () => reject(new Error('长截图拼接失败，请重试。'));
+		image.src = url;
+	});
+}
+
+async function createLongScreenshotOverview(images: string[], overlapCssPixels: number, cssWidth: number) {
+	const loaded = await Promise.all(images.map(loadScreenshotImage));
+	const first = loaded[0];
+	if (!first) {
+		return '';
+	}
+	const pixelScale = first.width / Math.max(1, cssWidth);
+	const overlapPixels = Math.max(0, Math.round(overlapCssPixels * pixelScale));
+	const naturalHeight = loaded.reduce(
+		(total, image, index) => total + Math.max(1, image.height - (index ? overlapPixels : 0)),
+		0
+	);
+	// Keep a readable page overview without exceeding common browser/model image limits.
+	const scale = Math.min(1, 4096 / first.width, 12000 / naturalHeight);
+	const canvas = document.createElement('canvas');
+	canvas.width = Math.max(1, Math.round(first.width * scale));
+	canvas.height = Math.max(1, Math.round(naturalHeight * scale));
+	const context = canvas.getContext('2d');
+	if (!context) {
+		throw new Error('无法创建长截图画布。');
+	}
+	let targetY = 0;
+	for (let index = 0; index < loaded.length; index++) {
+		const image = loaded[index];
+		const sourceY = index ? Math.min(overlapPixels, image.height - 1) : 0;
+		const sourceHeight = Math.max(1, image.height - sourceY);
+		const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+		context.drawImage(
+			image,
+			0,
+			sourceY,
+			image.width,
+			sourceHeight,
+			0,
+			targetY,
+			Math.round(image.width * scale),
+			targetHeight
+		);
+		targetY += targetHeight;
+	}
+	return canvas.toDataURL('image/jpeg', 0.9);
+}
+
 /**
- * Captures a fixed viewport rectangle while scrolling the document down, returning ordered image slices.
+ * Captures the exact document range selected by a scrolling drag gesture, returning ordered image slices.
  * The caller sends the slices individually to the model so text is not degraded by a huge stitched bitmap.
  */
-export async function captureLongViewportRect(rect: ViewportRect, options: LongScreenshotOptions): Promise<string[]> {
-	const maxFrames = Math.max(1, Math.floor(options.maxFrames) || 1);
+export async function captureLongViewportRect(
+	rect: LongScreenshotRect,
+	options: LongScreenshotOptions = {}
+): Promise<string[]> {
+	// Request sharing before the first scroll/paint await so this still runs inside the mouseup user gesture.
+	await getDisplayStream();
 	const initialScrollY = window.scrollY;
-	const overlap = Math.min(80, Math.max(0, Math.floor(rect.height / 3)));
-	const scrollStep = Math.max(1, Math.floor(rect.height - overlap));
+	const preferredTop = Math.max(0, Math.min(rect.top, window.innerHeight - 1));
+	const sliceHeight = Math.max(1, window.innerHeight - preferredTop);
+	const overlap = Math.min(80, Math.max(0, Math.floor(sliceHeight / 3)));
 	const images: string[] = [];
+	let documentY = rect.documentTop;
 
 	try {
-		for (let index = 0; index < maxFrames; index++) {
-			images.push(await captureViewportRect(rect));
-			options.onFrame?.(images.length);
+		while (documentY < rect.documentBottom) {
+			if (images.length >= 30) {
+				throw new Error('长截图超过 30 屏，请缩小框选范围后重试。');
+			}
 
 			const page = document.scrollingElement || document.documentElement;
-			const currentY = window.scrollY;
-			const maxY = Math.max(0, page.scrollHeight - window.innerHeight);
-			const nextY = Math.min(maxY, currentY + scrollStep);
-			if (nextY <= currentY + 1) {
+			const maxScrollY = Math.max(0, page.scrollHeight - window.innerHeight);
+			const targetScrollY = Math.max(0, Math.min(maxScrollY, documentY - preferredTop));
+			window.scrollTo(0, targetScrollY);
+			await waitForPagePaint();
+
+			const frameTop = Math.max(0, Math.round(documentY - window.scrollY));
+			const frameHeight = Math.min(window.innerHeight - frameTop, rect.documentBottom - documentY);
+			if (frameHeight < 1) {
+				throw new Error('长截图选区无法映射到当前视口，请重新框选。');
+			}
+			images.push(
+				await captureViewportRect({ left: rect.left, top: frameTop, width: rect.width, height: frameHeight })
+			);
+			options.onFrame?.(images.length);
+
+			if (documentY + frameHeight >= rect.documentBottom) {
 				break;
 			}
-			window.scrollTo(0, nextY);
-			await waitForPagePaint();
+			documentY += Math.max(1, frameHeight - overlap);
 		}
 	} finally {
 		window.scrollTo(0, initialScrollY);
 		await waitForPagePaint();
 	}
 
-	return images;
+	if (images.length < 2) {
+		return images;
+	}
+	const overview = await createLongScreenshotOverview(images, overlap, rect.width);
+	return overview ? [overview, ...images] : images;
 }
 
 export function releaseCaptureStream() {

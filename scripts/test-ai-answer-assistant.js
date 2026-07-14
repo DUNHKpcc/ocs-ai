@@ -58,9 +58,10 @@ assert.deepStrictEqual(fallback.answers, ['A']);
 assert.strictEqual(fallback.explanation, '选择第一项');
 
 const batchAnswers = OCS.parseAiBatchAnswerContent(
-	'```json\n{"items":[{"index":1,"answer":"A","answers":["A"],"explanation":"first"},{"index":2,"answers":["B","C"],"explanation":"second"}]}\n```'
+	'```json\n{"items":[{"index":1,"question":"First question","answer":"A","answers":["A"],"explanation":"first"},{"index":2,"answers":["B","C"],"explanation":"second"}]}\n```'
 );
 assert.strictEqual(batchAnswers.length, 2);
+assert.strictEqual(batchAnswers[0].question, 'First question');
 assert.strictEqual(batchAnswers[0].answer, 'A');
 assert.deepStrictEqual(batchAnswers[1].answers, ['B', 'C']);
 assert.strictEqual(batchAnswers[1].answer, 'B#C');
@@ -417,6 +418,7 @@ assert.strictEqual(typeof OCS.createElementSelectorPath, 'function');
 assert.strictEqual(typeof OCS.resolveElementSelectorPath, 'function');
 assert.strictEqual(typeof OCS.resolveElementFromClientRect, 'function');
 assert.strictEqual(typeof OCS.startRectRegionPicker, 'function');
+assert.strictEqual(typeof OCS.startLongScreenshotPicker, 'function');
 assert.strictEqual(typeof OCS.createRegionQuestionObserver, 'function');
 assert.strictEqual(!!OCS.CommonProject.scripts.aiAnswerAssistant, true);
 

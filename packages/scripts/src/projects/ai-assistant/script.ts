@@ -1,5 +1,11 @@
 import { $message, $ui, h, Script } from 'easy-us';
-import { captureLongViewportRect, captureViewportRect, releaseCaptureStream, ViewportRect } from './capture';
+import {
+	captureLongViewportRect,
+	captureViewportRect,
+	LongScreenshotRect,
+	releaseCaptureStream,
+	ViewportRect
+} from './capture';
 import {
 	createAiSearchInformation,
 	requestAiAnswer,
@@ -10,7 +16,12 @@ import { fillAiAnswer } from './fill';
 import { createQuestionFingerprint } from './fingerprint';
 import { createRegionQuestionObserver } from './observer';
 import { recognizeAiQuestion, recognizeAiQuestions, resolveActiveQuestionElement } from './recognizer';
-import { resolveElementSelectorPath, startRectScreenshotPicker, startRegionPicker } from './selector';
+import {
+	resolveElementSelectorPath,
+	startLongScreenshotPicker,
+	startRectScreenshotPicker,
+	startRegionPicker
+} from './selector';
 import { AiProviderConfig, AiQuestionContext, ParsedAiAnswer } from './types';
 
 const DEFAULT_SYSTEM_PROMPT =
@@ -559,7 +570,7 @@ function renderPanel(panel: any, script: Script) {
 
 	const longRectSelectButton = $ui.button('拖拽框选长截图');
 	longRectSelectButton.onclick = () => {
-		startRectScreenshotPicker(async (rect) => {
+		startLongScreenshotPicker(async (rect) => {
 			state.screenshotRect = rect;
 			state.longScreenshot = true;
 			state.status = '已框选区域，开始滚动长截图…（请在弹窗中选择共享“此标签页”）';
@@ -818,12 +829,10 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 
 	let dataUrls: string[];
 	try {
-		const maxFrames = Math.max(1, Math.floor(Number(cfg.longScreenshotMaxFrames) || 6));
 		dataUrls = state.longScreenshot
-			? await captureLongViewportRect(state.screenshotRect, {
-					maxFrames,
+			? await captureLongViewportRect(state.screenshotRect as LongScreenshotRect, {
 					onFrame: (count) => {
-						state.status = `长截图：已捕获 ${count}/${maxFrames} 屏`;
+						state.status = `长截图：已捕获 ${count} 张`;
 						onStateChange?.();
 					}
 				})
@@ -862,7 +871,8 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 			}
 			state.items = answers.map((answer, index) => ({
 				question: {
-					question: state.longScreenshot ? '（滚动长截图批量识别）' : '（截图批量识别）',
+					question:
+						answer.question || (state.longScreenshot ? '（滚动长截图批量识别）' : '（截图批量识别）'),
 					options: [],
 					imageUrls: dataUrls,
 					type: 'unknown',
@@ -1029,11 +1039,6 @@ export function createAiAnswerAssistantScript() {
 				label: '流式响应',
 				attrs: { type: 'checkbox' },
 				defaultValue: true
-			},
-			longScreenshotMaxFrames: {
-				label: '长截图最大屏数',
-				attrs: { type: 'number', min: 1, max: 20, step: 1 },
-				defaultValue: 6
 			},
 			temperature: {
 				label: 'Temperature',

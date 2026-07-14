@@ -1,4 +1,4 @@
-import type { ViewportRect } from './capture';
+import type { LongScreenshotRect, ViewportRect } from './capture';
 
 export function createElementSelectorPath(element: HTMLElement) {
 	const parts: string[] = [];
@@ -351,6 +351,142 @@ export function startRectScreenshotPicker(onSelect: (rect: ViewportRect) => void
 			cleanup();
 		}
 	};
+
+	document.addEventListener('mousedown', down, true);
+	document.addEventListener('mousemove', move, true);
+	document.addEventListener('mouseup', up, true);
+	document.addEventListener('keydown', keydown, true);
+}
+
+/**
+ * Long screenshot picker: while dragging near a viewport edge, scroll the page and extend the selection
+ * in document coordinates. Releasing the mouse returns the exact selected range for later slice capture.
+ */
+export function startLongScreenshotPicker(onSelect: (rect: LongScreenshotRect) => void) {
+	const overlay = document.createElement('div');
+	const box = document.createElement('div');
+	overlay.className = 'ocs-ai-region-overlay';
+	box.className = 'ocs-ai-region-box';
+	applyStyle(overlay, {
+		position: 'fixed',
+		inset: '0',
+		zIndex: '2147483647',
+		pointerEvents: 'auto',
+		cursor: 'crosshair'
+	});
+	applyStyle(box, {
+		position: 'fixed',
+		display: 'none',
+		border: '2px solid #2563eb',
+		background: 'rgba(37, 99, 235, 0.12)',
+		boxSizing: 'border-box',
+		pointerEvents: 'none'
+	});
+	overlay.append(box);
+	document.documentElement.append(overlay);
+
+	let startX = 0;
+	let startClientY = 0;
+	let startDocumentY = 0;
+	let lastX = 0;
+	let lastClientY = 0;
+	let dragging = false;
+	let animationFrame = 0;
+	const previousCursor = document.documentElement.style.cursor;
+	document.documentElement.style.cursor = 'crosshair';
+
+	const currentDocumentY = () => window.scrollY + lastClientY;
+	const renderBox = () => {
+		if (!dragging) {
+			return;
+		}
+		const left = Math.min(startX, lastX);
+		const documentTop = Math.min(startDocumentY, currentDocumentY());
+		const documentBottom = Math.max(startDocumentY, currentDocumentY());
+		box.style.left = `${left}px`;
+		box.style.top = `${documentTop - window.scrollY}px`;
+		box.style.width = `${Math.abs(lastX - startX)}px`;
+		box.style.height = `${documentBottom - documentTop}px`;
+	};
+	const cleanup = () => {
+		dragging = false;
+		cancelAnimationFrame(animationFrame);
+		document.documentElement.style.cursor = previousCursor;
+		document.removeEventListener('mousedown', down, true);
+		document.removeEventListener('mousemove', move, true);
+		document.removeEventListener('mouseup', up, true);
+		document.removeEventListener('keydown', keydown, true);
+		overlay.remove();
+	};
+	const autoScroll = () => {
+		if (!dragging) {
+			return;
+		}
+		const edgeSize = Math.min(96, Math.max(48, window.innerHeight * 0.12));
+		let delta = 0;
+		if (lastClientY > window.innerHeight - edgeSize) {
+			delta = Math.ceil(4 + ((lastClientY - (window.innerHeight - edgeSize)) / edgeSize) * 20);
+		} else if (lastClientY < edgeSize) {
+			delta = -Math.ceil(4 + ((edgeSize - lastClientY) / edgeSize) * 20);
+		}
+		if (delta) {
+			const before = window.scrollY;
+			window.scrollBy(0, delta);
+			if (window.scrollY !== before) {
+				renderBox();
+			}
+		}
+		animationFrame = requestAnimationFrame(autoScroll);
+	};
+	function down(event: MouseEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		startX = lastX = event.clientX;
+		startClientY = lastClientY = event.clientY;
+		startDocumentY = window.scrollY + event.clientY;
+		dragging = true;
+		box.style.display = 'block';
+		renderBox();
+		animationFrame = requestAnimationFrame(autoScroll);
+	}
+	function move(event: MouseEvent) {
+		if (!dragging) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		lastX = event.clientX;
+		lastClientY = Math.max(0, Math.min(window.innerHeight, event.clientY));
+		renderBox();
+	}
+	function up(event: MouseEvent) {
+		if (!dragging) {
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		lastX = event.clientX;
+		lastClientY = Math.max(0, Math.min(window.innerHeight, event.clientY));
+		const documentTop = Math.min(startDocumentY, currentDocumentY());
+		const documentBottom = Math.max(startDocumentY, currentDocumentY());
+		const selected: LongScreenshotRect = {
+			left: Math.min(startX, lastX),
+			top: Math.max(0, Math.min(startClientY, window.innerHeight - 1)),
+			width: Math.abs(lastX - startX),
+			height: documentBottom - documentTop,
+			documentTop,
+			documentBottom
+		};
+		cleanup();
+		if (selected.width >= 4 && selected.height >= 4) {
+			onSelect(selected);
+		}
+	}
+	function keydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			cleanup();
+		}
+	}
 
 	document.addEventListener('mousedown', down, true);
 	document.addEventListener('mousemove', move, true);

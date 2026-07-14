@@ -70,6 +70,7 @@ export function parseAiBatchAnswerContent(content: string): ParsedAiBatchAnswerI
 					const index = Number(item.index);
 					return {
 						index: Number.isInteger(index) && index > 0 ? index : position + 1,
+						question: typeof item.question === 'string' ? item.question.trim() : undefined,
 						answer: String(item.answer || answers.join('#')),
 						answers,
 						explanation: String(item.explanation || ''),
@@ -412,8 +413,11 @@ export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionC
 function createScreenshotPrompt(questionType?: string, imageCount = 1) {
 	return [
 		imageCount > 1
-			? 'The images are consecutive, overlapping screenshots of one quiz question. Read them in image order as one continuous question.'
+			? `The first image is a stitched overview of the full selection. The following ${imageCount - 1} images are consecutive, overlapping detail fragments. Use the overview to understand layout and the fragments to read text.`
 			: 'The image is a screenshot of a quiz question (it may contain the question text, options, and figures).',
+		imageCount > 1
+			? 'Treat all images as one continuous question. Its stem may begin in an early fragment while its options or blank appear only in the final fragment. Combine them before answering.'
+			: '',
 		questionType ? `Expected question type: ${questionType}.` : '',
 		'Read the screenshot carefully and answer the question.',
 		'Return JSON only: {"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}'
@@ -425,12 +429,32 @@ function createScreenshotPrompt(questionType?: string, imageCount = 1) {
 function createBatchScreenshotPrompt(imageCount = 1) {
 	return [
 		imageCount > 1
-			? 'The images are consecutive, overlapping screenshots containing one or more quiz questions. Read them in image order as one continuous page.'
+			? `The first image is a stitched overview of the full selection. The following ${imageCount - 1} images are consecutive, overlapping detail fragments. Use the overview to reconstruct the page and the fragments to read text.`
 			: 'The image is a screenshot containing one or more quiz questions, options, and figures.',
-		'Read every question in visual order from top to bottom. Do not omit a question.',
-		'Return JSON only: {"items":[{"index":1,"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}]}',
-		'Use visible option labels for answers. Each item must correspond to exactly one question.'
+		'Reconstruct the continuous page before identifying questions. Overlapping fragments and option-only fragments are continuations, not separate questions.',
+		'A question stem may span several fragments and its options or blank may appear only in the last fragment. Merge all of them before answering. If all fragments belong to one question, return exactly one item.',
+		'Count questions only from distinct question numbers or stems, never from the number of images. Read every question in visual order from top to bottom and do not omit one.',
+		'Return JSON only: {"items":[{"index":1,"question":"question text","answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}]}',
+		'Use visible option labels for answers. Each item must correspond to exactly one complete question.'
 	].join('\n\n');
+}
+
+function createScreenshotImageContent(prompt: string, imageUrls: string[]): AiChatMessage['content'] {
+	if (imageUrls.length <= 1) {
+		return [
+			{ type: 'text', text: prompt },
+			...imageUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))
+		];
+	}
+	return [
+		{ type: 'text', text: prompt },
+		{ type: 'text', text: 'Stitched overview:' },
+		{ type: 'image_url', image_url: { url: imageUrls[0] } },
+		...imageUrls.slice(1).flatMap((url, index) => [
+			{ type: 'text' as const, text: `Detail fragment ${index + 1} of ${imageUrls.length - 1}:` },
+			{ type: 'image_url' as const, image_url: { url } }
+		])
+	];
 }
 
 /**
@@ -446,10 +470,7 @@ export async function requestAiAnswerFromScreenshot(
 		{ role: 'system', content: config.systemPrompt },
 		{
 			role: 'user',
-			content: [
-				{ type: 'text', text: createScreenshotPrompt(opts.questionType, imageUrls.length) },
-				...imageUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))
-			]
+			content: createScreenshotImageContent(createScreenshotPrompt(opts.questionType, imageUrls.length), imageUrls)
 		}
 	];
 	const raw = await runAiCompletion(config, messages);
@@ -472,10 +493,7 @@ export async function requestAiAnswersFromScreenshot(config: AiProviderConfig, d
 		{ role: 'system', content: config.systemPrompt },
 		{
 			role: 'user',
-			content: [
-				{ type: 'text', text: createBatchScreenshotPrompt(imageUrls.length) },
-				...imageUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))
-			]
+			content: createScreenshotImageContent(createBatchScreenshotPrompt(imageUrls.length), imageUrls)
 		}
 	];
 	const raw = await runAiCompletion(config, messages);

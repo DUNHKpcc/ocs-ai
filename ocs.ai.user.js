@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name       				DPCC-OCS-AI
-// @version    				1.0.6
+// @version    				1.0.7
 // @description				OCS AI answer assistant for arbitrary websites with manual region selection.
 // @author     				enncy
 // @license    				MIT
@@ -3096,32 +3096,97 @@
       requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 180)));
     });
   }
-  async function captureLongViewportRect(rect, options) {
+  function loadScreenshotImage(url) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("长截图拼接失败，请重试。"));
+      image.src = url;
+    });
+  }
+  async function createLongScreenshotOverview(images, overlapCssPixels, cssWidth) {
+    const loaded = await Promise.all(images.map(loadScreenshotImage));
+    const first = loaded[0];
+    if (!first) {
+      return "";
+    }
+    const pixelScale = first.width / Math.max(1, cssWidth);
+    const overlapPixels = Math.max(0, Math.round(overlapCssPixels * pixelScale));
+    const naturalHeight = loaded.reduce(
+      (total, image, index) => total + Math.max(1, image.height - (index ? overlapPixels : 0)),
+      0
+    );
+    const scale = Math.min(1, 4096 / first.width, 12e3 / naturalHeight);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(first.width * scale));
+    canvas.height = Math.max(1, Math.round(naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("无法创建长截图画布。");
+    }
+    let targetY = 0;
+    for (let index = 0; index < loaded.length; index++) {
+      const image = loaded[index];
+      const sourceY = index ? Math.min(overlapPixels, image.height - 1) : 0;
+      const sourceHeight = Math.max(1, image.height - sourceY);
+      const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+      context.drawImage(
+        image,
+        0,
+        sourceY,
+        image.width,
+        sourceHeight,
+        0,
+        targetY,
+        Math.round(image.width * scale),
+        targetHeight
+      );
+      targetY += targetHeight;
+    }
+    return canvas.toDataURL("image/jpeg", 0.9);
+  }
+  async function captureLongViewportRect(rect, options = {}) {
     var _a;
-    const maxFrames = Math.max(1, Math.floor(options.maxFrames) || 1);
+    await getDisplayStream();
     const initialScrollY = window.scrollY;
-    const overlap = Math.min(80, Math.max(0, Math.floor(rect.height / 3)));
-    const scrollStep = Math.max(1, Math.floor(rect.height - overlap));
+    const preferredTop = Math.max(0, Math.min(rect.top, window.innerHeight - 1));
+    const sliceHeight = Math.max(1, window.innerHeight - preferredTop);
+    const overlap = Math.min(80, Math.max(0, Math.floor(sliceHeight / 3)));
     const images = [];
+    let documentY = rect.documentTop;
     try {
-      for (let index = 0; index < maxFrames; index++) {
-        images.push(await captureViewportRect(rect));
-        (_a = options.onFrame) == null ? void 0 : _a.call(options, images.length);
+      while (documentY < rect.documentBottom) {
+        if (images.length >= 30) {
+          throw new Error("长截图超过 30 屏，请缩小框选范围后重试。");
+        }
         const page = document.scrollingElement || document.documentElement;
-        const currentY = window.scrollY;
-        const maxY = Math.max(0, page.scrollHeight - window.innerHeight);
-        const nextY = Math.min(maxY, currentY + scrollStep);
-        if (nextY <= currentY + 1) {
+        const maxScrollY = Math.max(0, page.scrollHeight - window.innerHeight);
+        const targetScrollY = Math.max(0, Math.min(maxScrollY, documentY - preferredTop));
+        window.scrollTo(0, targetScrollY);
+        await waitForPagePaint();
+        const frameTop = Math.max(0, Math.round(documentY - window.scrollY));
+        const frameHeight = Math.min(window.innerHeight - frameTop, rect.documentBottom - documentY);
+        if (frameHeight < 1) {
+          throw new Error("长截图选区无法映射到当前视口，请重新框选。");
+        }
+        images.push(
+          await captureViewportRect({ left: rect.left, top: frameTop, width: rect.width, height: frameHeight })
+        );
+        (_a = options.onFrame) == null ? void 0 : _a.call(options, images.length);
+        if (documentY + frameHeight >= rect.documentBottom) {
           break;
         }
-        window.scrollTo(0, nextY);
-        await waitForPagePaint();
+        documentY += Math.max(1, frameHeight - overlap);
       }
     } finally {
       window.scrollTo(0, initialScrollY);
       await waitForPagePaint();
     }
-    return images;
+    if (images.length < 2) {
+      return images;
+    }
+    const overview = await createLongScreenshotOverview(images, overlap, rect.width);
+    return overview ? [overview, ...images] : images;
   }
   function releaseCaptureStream() {
     stopSharedStream();
@@ -3500,6 +3565,7 @@
           const index = Number(item.index);
           return {
             index: Number.isInteger(index) && index > 0 ? index : position + 1,
+            question: typeof item.question === "string" ? item.question.trim() : void 0,
             answer: String(item.answer || answers.join("#")),
             answers,
             explanation: String(item.explanation || ""),
@@ -3765,7 +3831,8 @@ ${imagesText}` : "",
   }
   function createScreenshotPrompt(questionType, imageCount = 1) {
     return [
-      imageCount > 1 ? "The images are consecutive, overlapping screenshots of one quiz question. Read them in image order as one continuous question." : "The image is a screenshot of a quiz question (it may contain the question text, options, and figures).",
+      imageCount > 1 ? `The first image is a stitched overview of the full selection. The following ${imageCount - 1} images are consecutive, overlapping detail fragments. Use the overview to understand layout and the fragments to read text.` : "The image is a screenshot of a quiz question (it may contain the question text, options, and figures).",
+      imageCount > 1 ? "Treat all images as one continuous question. Its stem may begin in an early fragment while its options or blank appear only in the final fragment. Combine them before answering." : "",
       questionType ? `Expected question type: ${questionType}.` : "",
       "Read the screenshot carefully and answer the question.",
       'Return JSON only: {"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}'
@@ -3773,11 +3840,30 @@ ${imagesText}` : "",
   }
   function createBatchScreenshotPrompt(imageCount = 1) {
     return [
-      imageCount > 1 ? "The images are consecutive, overlapping screenshots containing one or more quiz questions. Read them in image order as one continuous page." : "The image is a screenshot containing one or more quiz questions, options, and figures.",
-      "Read every question in visual order from top to bottom. Do not omit a question.",
-      'Return JSON only: {"items":[{"index":1,"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}]}',
-      "Use visible option labels for answers. Each item must correspond to exactly one question."
+      imageCount > 1 ? `The first image is a stitched overview of the full selection. The following ${imageCount - 1} images are consecutive, overlapping detail fragments. Use the overview to reconstruct the page and the fragments to read text.` : "The image is a screenshot containing one or more quiz questions, options, and figures.",
+      "Reconstruct the continuous page before identifying questions. Overlapping fragments and option-only fragments are continuations, not separate questions.",
+      "A question stem may span several fragments and its options or blank may appear only in the last fragment. Merge all of them before answering. If all fragments belong to one question, return exactly one item.",
+      "Count questions only from distinct question numbers or stems, never from the number of images. Read every question in visual order from top to bottom and do not omit one.",
+      'Return JSON only: {"items":[{"index":1,"question":"question text","answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}]}',
+      "Use visible option labels for answers. Each item must correspond to exactly one complete question."
     ].join("\n\n");
+  }
+  function createScreenshotImageContent(prompt, imageUrls) {
+    if (imageUrls.length <= 1) {
+      return [
+        { type: "text", text: prompt },
+        ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } }))
+      ];
+    }
+    return [
+      { type: "text", text: prompt },
+      { type: "text", text: "Stitched overview:" },
+      { type: "image_url", image_url: { url: imageUrls[0] } },
+      ...imageUrls.slice(1).flatMap((url, index) => [
+        { type: "text", text: `Detail fragment ${index + 1} of ${imageUrls.length - 1}:` },
+        { type: "image_url", image_url: { url } }
+      ])
+    ];
   }
   async function requestAiAnswerFromScreenshot(config2, dataUrl, opts = {}) {
     const imageUrls = Array.isArray(dataUrl) ? dataUrl : [dataUrl];
@@ -3785,10 +3871,7 @@ ${imagesText}` : "",
       { role: "system", content: config2.systemPrompt },
       {
         role: "user",
-        content: [
-          { type: "text", text: createScreenshotPrompt(opts.questionType, imageUrls.length) },
-          ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } }))
-        ]
+        content: createScreenshotImageContent(createScreenshotPrompt(opts.questionType, imageUrls.length), imageUrls)
       }
     ];
     const raw = await runAiCompletion(config2, messages);
@@ -3807,10 +3890,7 @@ ${imagesText}` : "",
       { role: "system", content: config2.systemPrompt },
       {
         role: "user",
-        content: [
-          { type: "text", text: createBatchScreenshotPrompt(imageUrls.length) },
-          ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } }))
-        ]
+        content: createScreenshotImageContent(createBatchScreenshotPrompt(imageUrls.length), imageUrls)
       }
     ];
     const raw = await runAiCompletion(config2, messages);
@@ -4700,6 +4780,134 @@ ${imagesText}` : "",
     document.addEventListener("mouseup", up, true);
     document.addEventListener("keydown", keydown, true);
   }
+  function startLongScreenshotPicker(onSelect) {
+    const overlay = document.createElement("div");
+    const box = document.createElement("div");
+    overlay.className = "ocs-ai-region-overlay";
+    box.className = "ocs-ai-region-box";
+    applyStyle(overlay, {
+      position: "fixed",
+      inset: "0",
+      zIndex: "2147483647",
+      pointerEvents: "auto",
+      cursor: "crosshair"
+    });
+    applyStyle(box, {
+      position: "fixed",
+      display: "none",
+      border: "2px solid #2563eb",
+      background: "rgba(37, 99, 235, 0.12)",
+      boxSizing: "border-box",
+      pointerEvents: "none"
+    });
+    overlay.append(box);
+    document.documentElement.append(overlay);
+    let startX = 0;
+    let startClientY = 0;
+    let startDocumentY = 0;
+    let lastX = 0;
+    let lastClientY = 0;
+    let dragging = false;
+    let animationFrame = 0;
+    const previousCursor = document.documentElement.style.cursor;
+    document.documentElement.style.cursor = "crosshair";
+    const currentDocumentY = () => window.scrollY + lastClientY;
+    const renderBox = () => {
+      if (!dragging) {
+        return;
+      }
+      const left = Math.min(startX, lastX);
+      const documentTop = Math.min(startDocumentY, currentDocumentY());
+      const documentBottom = Math.max(startDocumentY, currentDocumentY());
+      box.style.left = `${left}px`;
+      box.style.top = `${documentTop - window.scrollY}px`;
+      box.style.width = `${Math.abs(lastX - startX)}px`;
+      box.style.height = `${documentBottom - documentTop}px`;
+    };
+    const cleanup = () => {
+      dragging = false;
+      cancelAnimationFrame(animationFrame);
+      document.documentElement.style.cursor = previousCursor;
+      document.removeEventListener("mousedown", down, true);
+      document.removeEventListener("mousemove", move, true);
+      document.removeEventListener("mouseup", up, true);
+      document.removeEventListener("keydown", keydown, true);
+      overlay.remove();
+    };
+    const autoScroll = () => {
+      if (!dragging) {
+        return;
+      }
+      const edgeSize = Math.min(96, Math.max(48, window.innerHeight * 0.12));
+      let delta = 0;
+      if (lastClientY > window.innerHeight - edgeSize) {
+        delta = Math.ceil(4 + (lastClientY - (window.innerHeight - edgeSize)) / edgeSize * 20);
+      } else if (lastClientY < edgeSize) {
+        delta = -Math.ceil(4 + (edgeSize - lastClientY) / edgeSize * 20);
+      }
+      if (delta) {
+        const before = window.scrollY;
+        window.scrollBy(0, delta);
+        if (window.scrollY !== before) {
+          renderBox();
+        }
+      }
+      animationFrame = requestAnimationFrame(autoScroll);
+    };
+    function down(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      startX = lastX = event.clientX;
+      startClientY = lastClientY = event.clientY;
+      startDocumentY = window.scrollY + event.clientY;
+      dragging = true;
+      box.style.display = "block";
+      renderBox();
+      animationFrame = requestAnimationFrame(autoScroll);
+    }
+    function move(event) {
+      if (!dragging) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      lastX = event.clientX;
+      lastClientY = Math.max(0, Math.min(window.innerHeight, event.clientY));
+      renderBox();
+    }
+    function up(event) {
+      if (!dragging) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      lastX = event.clientX;
+      lastClientY = Math.max(0, Math.min(window.innerHeight, event.clientY));
+      const documentTop = Math.min(startDocumentY, currentDocumentY());
+      const documentBottom = Math.max(startDocumentY, currentDocumentY());
+      const selected = {
+        left: Math.min(startX, lastX),
+        top: Math.max(0, Math.min(startClientY, window.innerHeight - 1)),
+        width: Math.abs(lastX - startX),
+        height: documentBottom - documentTop,
+        documentTop,
+        documentBottom
+      };
+      cleanup();
+      if (selected.width >= 4 && selected.height >= 4) {
+        onSelect(selected);
+      }
+    }
+    function keydown(event) {
+      if (event.key === "Escape") {
+        cleanup();
+      }
+    }
+    document.addEventListener("mousedown", down, true);
+    document.addEventListener("mousemove", move, true);
+    document.addEventListener("mouseup", up, true);
+    document.addEventListener("keydown", keydown, true);
+  }
   const DEFAULT_SYSTEM_PROMPT = "You answer quiz questions. Return compact JSON only. For choice questions, answer with visible option labels when possible.";
   const DEFAULT_SCREENSHOT_HOTKEY = "Alt+S";
   const DEFAULT_RECAPTURE_HOTKEY = "Alt+R";
@@ -5119,7 +5327,7 @@ ${imagesText}` : "",
     };
     const longRectSelectButton = lib.$ui.button("拖拽框选长截图");
     longRectSelectButton.onclick = () => {
-      startRectScreenshotPicker(async (rect) => {
+      startLongScreenshotPicker(async (rect) => {
         state$1.screenshotRect = rect;
         state$1.longScreenshot = true;
         state$1.status = "已框选区域，开始滚动长截图…（请在弹窗中选择共享“此标签页”）";
@@ -5367,11 +5575,9 @@ ${imagesText}` : "",
     onStateChange == null ? void 0 : onStateChange();
     let dataUrls;
     try {
-      const maxFrames = Math.max(1, Math.floor(Number(cfg.longScreenshotMaxFrames) || 6));
       dataUrls = state$1.longScreenshot ? await captureLongViewportRect(state$1.screenshotRect, {
-        maxFrames,
         onFrame: (count) => {
-          state$1.status = `长截图：已捕获 ${count}/${maxFrames} 屏`;
+          state$1.status = `长截图：已捕获 ${count} 张`;
           onStateChange == null ? void 0 : onStateChange();
         }
       }) : [await captureViewportRect(state$1.screenshotRect)];
@@ -5407,7 +5613,7 @@ ${imagesText}` : "",
         }
         state$1.items = answers.map((answer, index) => ({
           question: {
-            question: state$1.longScreenshot ? "（滚动长截图批量识别）" : "（截图批量识别）",
+            question: answer.question || (state$1.longScreenshot ? "（滚动长截图批量识别）" : "（截图批量识别）"),
             options: [],
             imageUrls: dataUrls,
             type: "unknown",
@@ -5563,11 +5769,6 @@ ${imagesText}` : "",
           label: "流式响应",
           attrs: { type: "checkbox" },
           defaultValue: true
-        },
-        longScreenshotMaxFrames: {
-          label: "长截图最大屏数",
-          attrs: { type: "number", min: 1, max: 20, step: 1 },
-          defaultValue: 6
         },
         temperature: {
           label: "Temperature",
@@ -5845,6 +6046,7 @@ ${imagesText}` : "",
   exports2.resolveQuestionContainer = resolveQuestionContainer;
   exports2.splitAnswer = splitAnswer;
   exports2.start = lib.start;
+  exports2.startLongScreenshotPicker = startLongScreenshotPicker;
   exports2.startRectRegionPicker = startRectRegionPicker;
   exports2.startRectScreenshotPicker = startRectScreenshotPicker;
   exports2.startRegionPicker = startRegionPicker;
