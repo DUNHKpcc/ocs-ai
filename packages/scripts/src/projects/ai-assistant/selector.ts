@@ -70,6 +70,21 @@ function normalizeClientRect(startX: number, startY: number, endX: number, endY:
 	} as DOMRect;
 }
 
+export function calculateEdgeAutoScrollDelta(clientY: number, viewportHeight: number) {
+	const height = Math.max(1, viewportHeight);
+	const edgeSize = Math.min(140, Math.max(72, height * 0.16));
+	const clampedY = Math.max(0, Math.min(height, clientY));
+	if (clampedY > height - edgeSize) {
+		const proximity = (clampedY - (height - edgeSize)) / edgeSize;
+		return Math.ceil(12 + proximity * 116);
+	}
+	if (clampedY < edgeSize) {
+		const proximity = (edgeSize - clampedY) / edgeSize;
+		return -Math.ceil(12 + proximity * 116);
+	}
+	return 0;
+}
+
 function intersectionArea(a: DOMRect, b: DOMRect) {
 	const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
 	const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
@@ -422,19 +437,13 @@ export function startLongScreenshotPicker(onSelect: (rect: LongScreenshotRect) =
 		if (!dragging) {
 			return;
 		}
-		const edgeSize = Math.min(140, Math.max(72, window.innerHeight * 0.16));
-		let delta = 0;
-		if (lastClientY > window.innerHeight - edgeSize) {
-			const proximity = (lastClientY - (window.innerHeight - edgeSize)) / edgeSize;
-			delta = Math.ceil(6 + proximity * proximity * 58);
-		} else if (lastClientY < edgeSize) {
-			const proximity = (edgeSize - lastClientY) / edgeSize;
-			delta = -Math.ceil(6 + proximity * proximity * 58);
-		}
+		const delta = calculateEdgeAutoScrollDelta(lastClientY, window.innerHeight);
 		if (delta) {
-			const before = window.scrollY;
-			window.scrollBy(0, delta);
-			if (window.scrollY !== before) {
+			const scrollingElement = document.scrollingElement || document.documentElement;
+			const before = scrollingElement.scrollTop;
+			// Direct scrollTop assignment bypasses page-level smooth-scroll CSS that can flatten acceleration.
+			scrollingElement.scrollTop = before + delta;
+			if (scrollingElement.scrollTop !== before) {
 				renderBox();
 			}
 		}

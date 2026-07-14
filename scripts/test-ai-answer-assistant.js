@@ -419,6 +419,13 @@ assert.strictEqual(typeof OCS.resolveElementSelectorPath, 'function');
 assert.strictEqual(typeof OCS.resolveElementFromClientRect, 'function');
 assert.strictEqual(typeof OCS.startRectRegionPicker, 'function');
 assert.strictEqual(typeof OCS.startLongScreenshotPicker, 'function');
+const scrollNearBottom = OCS.calculateEdgeAutoScrollDelta(770, 900);
+const scrollCloserToBottom = OCS.calculateEdgeAutoScrollDelta(835, 900);
+const scrollAtBottom = OCS.calculateEdgeAutoScrollDelta(900, 900);
+assert.ok(scrollNearBottom > 0);
+assert.ok(scrollNearBottom < scrollCloserToBottom);
+assert.ok(scrollCloserToBottom < scrollAtBottom);
+assert.strictEqual(scrollAtBottom, 128);
 assert.strictEqual(typeof OCS.createRegionQuestionObserver, 'function');
 assert.strictEqual(!!OCS.CommonProject.scripts.aiAnswerAssistant, true);
 
