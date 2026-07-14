@@ -1,12 +1,17 @@
 import { $message, $ui, h, Script } from 'easy-us';
-import { captureViewportRect, releaseCaptureStream, ViewportRect } from './capture';
-import { createAiSearchInformation, requestAiAnswer, requestAiAnswerFromScreenshot } from './ai-answerer';
+import { captureLongViewportRect, captureViewportRect, releaseCaptureStream, ViewportRect } from './capture';
+import {
+	createAiSearchInformation,
+	requestAiAnswer,
+	requestAiAnswerFromScreenshot,
+	requestAiAnswersFromScreenshot
+} from './ai-answerer';
 import { fillAiAnswer } from './fill';
 import { createQuestionFingerprint } from './fingerprint';
 import { createRegionQuestionObserver } from './observer';
 import { recognizeAiQuestion, recognizeAiQuestions, resolveActiveQuestionElement } from './recognizer';
 import { resolveElementSelectorPath, startRectScreenshotPicker, startRegionPicker } from './selector';
-import { AiQuestionContext, ParsedAiAnswer } from './types';
+import { AiProviderConfig, AiQuestionContext, ParsedAiAnswer } from './types';
 
 const DEFAULT_SYSTEM_PROMPT =
 	'You answer quiz questions. Return compact JSON only. For choice questions, answer with visible option labels when possible.';
@@ -152,11 +157,13 @@ const state: {
 	requestVersion: number;
 	cache: Map<string, ParsedAiAnswer>;
 	screenshotRect?: ViewportRect;
+	longScreenshot: boolean;
 } = {
 	loading: false,
 	requestVersion: 0,
 	items: [],
-	cache: new Map()
+	cache: new Map(),
+	longScreenshot: false
 };
 
 function getRulePath(cfg: any) {
@@ -171,12 +178,13 @@ function setRulePath(cfg: any, path: string) {
 	}
 }
 
-function createProviderConfig(cfg: any) {
+function createProviderConfig(cfg: any): AiProviderConfig {
 	const provider = getActiveProvider(cfg);
 	return {
 		baseURL: provider.baseURL,
 		apiKey: provider.apiKey,
 		model: provider.model,
+		apiMode: cfg.apiMode === 'responses' ? 'responses' : 'chat_completions',
 		temperature: Number(cfg.temperature || 0.2),
 		timeout: Number(cfg.timeout || 60),
 		systemPrompt: cfg.systemPrompt || DEFAULT_SYSTEM_PROMPT,
@@ -515,7 +523,7 @@ function renderPanel(panel: any, script: Script) {
 	const renderAnswerItem = (item: AiAnswerItem, index: number) =>
 		h('div', { style: { padding: '6px 0', borderTop: index ? '1px solid #e5e7eb' : '' } }, [
 			h('div', [h('b', `题目 ${index + 1}：`), item.question.question || '等待识别']),
-			renderScreenshotThumbs(item.question),
+			renderScreenshotThumbs(index === 0 ? item.question : undefined),
 			h('div', [
 				h('b', '选项：'),
 				item.question.options.length
@@ -541,7 +549,20 @@ function renderPanel(panel: any, script: Script) {
 	rectSelectButton.onclick = () => {
 		startRectScreenshotPicker(async (rect) => {
 			state.screenshotRect = rect;
+			state.longScreenshot = false;
 			state.status = '已框选区域，开始截图…（请在弹窗中选择共享“此标签页”）';
+			renderPanel(panel, script);
+			await captureAndAsk(script, () => renderPanel(panel, script));
+			renderPanel(panel, script);
+		});
+	};
+
+	const longRectSelectButton = $ui.button('拖拽框选长截图');
+	longRectSelectButton.onclick = () => {
+		startRectScreenshotPicker(async (rect) => {
+			state.screenshotRect = rect;
+			state.longScreenshot = true;
+			state.status = '已框选区域，开始滚动长截图…（请在弹窗中选择共享“此标签页”）';
 			renderPanel(panel, script);
 			await captureAndAsk(script, () => renderPanel(panel, script));
 			renderPanel(panel, script);
@@ -605,6 +626,7 @@ function renderPanel(panel: any, script: Script) {
 		state.error = undefined;
 		state.loading = false;
 		state.screenshotRect = undefined;
+		state.longScreenshot = false;
 		releaseCaptureStream();
 		setRulePath(cfg, '');
 		state.status = '已清空所选题目区域。';
@@ -626,7 +648,7 @@ function renderPanel(panel: any, script: Script) {
 		$message.success({ content: '答案已复制。' });
 	};
 	const fillButton = $ui.button('填入答案');
-	fillButton.disabled = !state.items.some((item) => item.answer) || cfg.mode !== 'fill';
+	fillButton.disabled = !state.items.some((item) => item.answer && item.question.fillTargets.length) || cfg.mode !== 'fill';
 	fillButton.onclick = () => {
 		if (!state.items.length) {
 			return;
@@ -642,6 +664,7 @@ function renderPanel(panel: any, script: Script) {
 	const actionButtons = [
 		selectButton,
 		rectSelectButton,
+		longRectSelectButton,
 		recaptureButton,
 		startButton,
 		clearRegionButton,
@@ -793,9 +816,18 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 	const requestVersion = ++state.requestVersion;
 	onStateChange?.();
 
-	let dataUrl: string;
+	let dataUrls: string[];
 	try {
-		dataUrl = await captureViewportRect(state.screenshotRect);
+		const maxFrames = Math.max(1, Math.floor(Number(cfg.longScreenshotMaxFrames) || 6));
+		dataUrls = state.longScreenshot
+			? await captureLongViewportRect(state.screenshotRect, {
+					maxFrames,
+					onFrame: (count) => {
+						state.status = `长截图：已捕获 ${count}/${maxFrames} 屏`;
+						onStateChange?.();
+					}
+				})
+			: [await captureViewportRect(state.screenshotRect)];
 	} catch (error) {
 		if (state.requestVersion === requestVersion) {
 			state.loading = false;
@@ -809,9 +841,9 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 	}
 
 	const question: AiQuestionContext = {
-		question: '（截图识别）',
+		question: state.longScreenshot ? '（滚动长截图识别）' : '（截图识别）',
 		options: [],
-		imageUrls: [dataUrl],
+		imageUrls: dataUrls,
 		type: 'unknown',
 		fillTargets: []
 	};
@@ -823,14 +855,33 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 	onStateChange?.();
 
 	try {
-		const info = await requestAiAnswerFromScreenshot(createProviderConfig(cfg), dataUrl, {
-			questionType: cfg.questionMode === 'multiple' ? 'multiple' : 'single'
-		});
-		if (state.requestVersion !== requestVersion) {
-			return;
+		if (isMultipleQuestionMode(cfg)) {
+			const answers = await requestAiAnswersFromScreenshot(createProviderConfig(cfg), dataUrls);
+			if (state.requestVersion !== requestVersion) {
+				return;
+			}
+			state.items = answers.map((answer, index) => ({
+				question: {
+					question: state.longScreenshot ? '（滚动长截图批量识别）' : '（截图批量识别）',
+					options: [],
+					imageUrls: dataUrls,
+					type: 'unknown',
+					fillTargets: []
+				},
+				fingerprint: `screenshot-${answer.index || index + 1}`,
+				answer,
+				loading: false
+			}));
+			state.question = state.items[0]?.question;
+			state.answer = state.items[0]?.answer;
+		} else {
+			const info = await requestAiAnswerFromScreenshot(createProviderConfig(cfg), dataUrls, { questionType: 'single' });
+			if (state.requestVersion !== requestVersion) {
+				return;
+			}
+			item.answer = createAnswerFromSearch(info);
+			state.answer = item.answer;
 		}
-		item.answer = createAnswerFromSearch(info);
-		state.answer = item.answer;
 	} catch (error) {
 		if (state.requestVersion !== requestVersion) {
 			return;
@@ -965,10 +1016,24 @@ export function createAiAnswerAssistantScript() {
 					['both', '链接 + image_url']
 				]
 			},
+			apiMode: {
+				label: 'API 接口',
+				tag: 'select',
+				defaultValue: 'chat_completions',
+				options: [
+					['chat_completions', 'Chat Completions (/v1/chat/completions)'],
+					['responses', 'Responses (/v1/responses)']
+				]
+			},
 			streamResponse: {
 				label: '流式响应',
 				attrs: { type: 'checkbox' },
 				defaultValue: true
+			},
+			longScreenshotMaxFrames: {
+				label: '长截图最大屏数',
+				attrs: { type: 'number', min: 1, max: 20, step: 1 },
+				defaultValue: 6
 			},
 			temperature: {
 				label: 'Temperature',
@@ -1007,6 +1072,7 @@ export function createAiAnswerAssistantScript() {
 			const startPicker = () => {
 				startRectScreenshotPicker(async (rect) => {
 					state.screenshotRect = rect;
+					state.longScreenshot = false;
 					rerender();
 					await captureAndAsk(script, rerender);
 					rerender();

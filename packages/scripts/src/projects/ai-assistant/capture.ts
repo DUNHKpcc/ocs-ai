@@ -5,6 +5,11 @@ export interface ViewportRect {
 	height: number;
 }
 
+export interface LongScreenshotOptions {
+	maxFrames: number;
+	onFrame?: (count: number) => void;
+}
+
 let sharedStream: MediaStream | undefined;
 let pendingStream: Promise<MediaStream> | undefined;
 
@@ -160,6 +165,46 @@ export async function captureViewportRect(rect: ViewportRect): Promise<string> {
 		video.pause();
 		video.srcObject = null;
 	}
+}
+
+function waitForPagePaint() {
+	return new Promise<void>((resolve) => {
+		requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 180)));
+	});
+}
+
+/**
+ * Captures a fixed viewport rectangle while scrolling the document down, returning ordered image slices.
+ * The caller sends the slices individually to the model so text is not degraded by a huge stitched bitmap.
+ */
+export async function captureLongViewportRect(rect: ViewportRect, options: LongScreenshotOptions): Promise<string[]> {
+	const maxFrames = Math.max(1, Math.floor(options.maxFrames) || 1);
+	const initialScrollY = window.scrollY;
+	const overlap = Math.min(80, Math.max(0, Math.floor(rect.height / 3)));
+	const scrollStep = Math.max(1, Math.floor(rect.height - overlap));
+	const images: string[] = [];
+
+	try {
+		for (let index = 0; index < maxFrames; index++) {
+			images.push(await captureViewportRect(rect));
+			options.onFrame?.(images.length);
+
+			const page = document.scrollingElement || document.documentElement;
+			const currentY = window.scrollY;
+			const maxY = Math.max(0, page.scrollHeight - window.innerHeight);
+			const nextY = Math.min(maxY, currentY + scrollStep);
+			if (nextY <= currentY + 1) {
+				break;
+			}
+			window.scrollTo(0, nextY);
+			await waitForPagePaint();
+		}
+	} finally {
+		window.scrollTo(0, initialScrollY);
+		await waitForPagePaint();
+	}
+
+	return images;
 }
 
 export function releaseCaptureStream() {

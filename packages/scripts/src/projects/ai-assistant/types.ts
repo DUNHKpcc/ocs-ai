@@ -30,10 +30,16 @@ export interface ParsedAiAnswer {
 	confidence?: number;
 }
 
+export interface ParsedAiBatchAnswerItem extends ParsedAiAnswer {
+	index: number;
+}
+
 export interface AiProviderConfig {
 	baseURL: string;
 	apiKey: string;
 	model: string;
+	/** Defaults to Chat Completions for existing callers and saved settings. */
+	apiMode?: 'chat_completions' | 'responses';
 	temperature: number;
 	timeout: number;
 	systemPrompt: string;

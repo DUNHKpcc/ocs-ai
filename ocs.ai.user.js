@@ -3091,6 +3091,38 @@
       video.srcObject = null;
     }
   }
+  function waitForPagePaint() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 180)));
+    });
+  }
+  async function captureLongViewportRect(rect, options) {
+    var _a;
+    const maxFrames = Math.max(1, Math.floor(options.maxFrames) || 1);
+    const initialScrollY = window.scrollY;
+    const overlap = Math.min(80, Math.max(0, Math.floor(rect.height / 3)));
+    const scrollStep = Math.max(1, Math.floor(rect.height - overlap));
+    const images = [];
+    try {
+      for (let index = 0; index < maxFrames; index++) {
+        images.push(await captureViewportRect(rect));
+        (_a = options.onFrame) == null ? void 0 : _a.call(options, images.length);
+        const page = document.scrollingElement || document.documentElement;
+        const currentY = window.scrollY;
+        const maxY = Math.max(0, page.scrollHeight - window.innerHeight);
+        const nextY = Math.min(maxY, currentY + scrollStep);
+        if (nextY <= currentY + 1) {
+          break;
+        }
+        window.scrollTo(0, nextY);
+        await waitForPagePaint();
+      }
+    } finally {
+      window.scrollTo(0, initialScrollY);
+      await waitForPagePaint();
+    }
+    return images;
+  }
   function releaseCaptureStream() {
     stopSharedStream();
   }
@@ -3456,6 +3488,29 @@
       explanation: ((explanationMatch == null ? void 0 : explanationMatch[1]) || "").trim()
     };
   }
+  function parseAiBatchAnswerContent(content) {
+    for (const candidate of createJsonCandidates(content.trim())) {
+      try {
+        const parsed = JSON.parse(candidate);
+        if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.items)) {
+          continue;
+        }
+        return parsed.items.filter((item) => item && typeof item === "object").map((item, position) => {
+          const answers = Array.isArray(item.answers) ? item.answers.map(String).filter(Boolean) : item.answer ? [String(item.answer)] : [];
+          const index = Number(item.index);
+          return {
+            index: Number.isInteger(index) && index > 0 ? index : position + 1,
+            answer: String(item.answer || answers.join("#")),
+            answers,
+            explanation: String(item.explanation || ""),
+            confidence: typeof item.confidence === "number" ? item.confidence : void 0
+          };
+        });
+      } catch (error) {
+      }
+    }
+    return [];
+  }
   function parseAiAnswerJson(content) {
     try {
       const parsed = JSON.parse(content);
@@ -3582,12 +3637,15 @@
       ]
     };
   }
-  function normalizeChatCompletionsURL(baseURL) {
+  function normalizeOpenAIURL(baseURL, endpoint) {
     const trimmed = baseURL.trim().replace(/\/+$/, "");
-    if (trimmed.endsWith("/chat/completions")) {
-      return trimmed;
-    }
-    return `${trimmed}/chat/completions`;
+    return `${trimmed.replace(/\/(?:chat\/completions|responses)$/, "")}/${endpoint}`;
+  }
+  function normalizeChatCompletionsURL(baseURL) {
+    return normalizeOpenAIURL(baseURL, "chat/completions");
+  }
+  function normalizeResponsesURL(baseURL) {
+    return normalizeOpenAIURL(baseURL, "responses");
   }
   function parseOpenAIStreamContent(content) {
     return content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith("data:")).map((line) => line.replace(/^data:\s*/, "")).filter((line) => line && line !== "[DONE]").map((line) => {
@@ -3595,6 +3653,16 @@
       try {
         const parsed = JSON.parse(line);
         return ((_c = (_b = (_a = parsed == null ? void 0 : parsed.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.delta) == null ? void 0 : _c.content) || ((_f = (_e = (_d = parsed == null ? void 0 : parsed.choices) == null ? void 0 : _d[0]) == null ? void 0 : _e.message) == null ? void 0 : _f.content) || "";
+      } catch (error) {
+        return "";
+      }
+    }).join("");
+  }
+  function parseResponsesStreamContent(content) {
+    return content.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.startsWith("data:")).map((line) => line.replace(/^data:\s*/, "")).filter((line) => line && line !== "[DONE]").map((line) => {
+      try {
+        const parsed = JSON.parse(line);
+        return (parsed == null ? void 0 : parsed.type) === "response.output_text.delta" ? parsed.delta || "" : "";
       } catch (error) {
         return "";
       }
@@ -3626,6 +3694,14 @@ ${imagesText}` : "",
       { role: "user", content: userContent }
     ];
   }
+  function createAiResponsesInput(messages) {
+    return messages.filter((message2) => message2.role === "user").map((message2) => ({
+      role: "user",
+      content: typeof message2.content === "string" ? message2.content : message2.content.map(
+        (part) => part.type === "text" ? { type: "input_text", text: part.text } : { type: "input_image", image_url: part.image_url.url }
+      )
+    }));
+  }
   function extractChatContent(raw, stream) {
     var _a, _b, _c, _d, _e;
     if (stream) {
@@ -3633,9 +3709,31 @@ ${imagesText}` : "",
     }
     return ((_c = (_b = (_a = raw == null ? void 0 : raw.choices) == null ? void 0 : _a[0]) == null ? void 0 : _b.message) == null ? void 0 : _c.content) || ((_e = (_d = raw == null ? void 0 : raw.choices) == null ? void 0 : _d[0]) == null ? void 0 : _e.text) || "";
   }
-  async function runChatCompletion(config2, messages) {
-    const url = normalizeChatCompletionsURL(config2.baseURL);
+  function extractResponsesContent(raw, stream) {
+    if (stream) {
+      return parseResponsesStreamContent(typeof raw === "string" ? raw : String(raw != null ? raw : ""));
+    }
+    if (typeof (raw == null ? void 0 : raw.output_text) === "string") {
+      return raw.output_text;
+    }
+    return ((raw == null ? void 0 : raw.output) || []).flatMap((item) => (item == null ? void 0 : item.content) || []).filter((part) => (part == null ? void 0 : part.type) === "output_text").map((part) => part.text || "").join("");
+  }
+  async function runAiCompletion(config2, messages) {
+    const isResponses = config2.apiMode === "responses";
+    const url = isResponses ? normalizeResponsesURL(config2.baseURL) : normalizeChatCompletionsURL(config2.baseURL);
     const timeoutMs = Math.max(5, Number(config2.timeout) || 60) * 1e3;
+    const data = isResponses ? {
+      model: config2.model,
+      temperature: config2.temperature,
+      stream: config2.streamResponse,
+      instructions: config2.systemPrompt,
+      input: createAiResponsesInput(messages)
+    } : {
+      model: config2.model,
+      temperature: config2.temperature,
+      stream: config2.streamResponse,
+      messages
+    };
     const responsePromise = request(url, {
       type: "GM_xmlhttpRequest",
       method: "post",
@@ -3644,12 +3742,7 @@ ${imagesText}` : "",
         Authorization: `Bearer ${config2.apiKey}`,
         "Content-Type": "application/json"
       },
-      data: {
-        model: config2.model,
-        temperature: config2.temperature,
-        stream: config2.streamResponse,
-        messages
-      }
+      data
     });
     let timer;
     const timeoutPromise = new Promise((_, reject) => {
@@ -3657,7 +3750,7 @@ ${imagesText}` : "",
     });
     try {
       const raw = await Promise.race([responsePromise, timeoutPromise]);
-      return extractChatContent(raw, config2.streamResponse);
+      return isResponses ? extractResponsesContent(raw, config2.streamResponse) : extractChatContent(raw, config2.streamResponse);
     } catch (error) {
       throw error instanceof Error ? error : new Error(String(error));
     } finally {
@@ -3667,37 +3760,65 @@ ${imagesText}` : "",
     }
   }
   async function requestAiAnswer(config2, ctx) {
-    const raw = await runChatCompletion(config2, createAiChatMessages(config2, ctx));
+    const raw = await runAiCompletion(config2, createAiChatMessages(config2, ctx));
     return createAiSearchInformation(ctx, parseAiAnswerContent(raw));
   }
-  function createScreenshotPrompt(questionType) {
+  function createScreenshotPrompt(questionType, imageCount = 1) {
     return [
-      "The image is a screenshot of a quiz question (it may contain the question text, options, and figures).",
+      imageCount > 1 ? "The images are consecutive, overlapping screenshots of one quiz question. Read them in image order as one continuous question." : "The image is a screenshot of a quiz question (it may contain the question text, options, and figures).",
       questionType ? `Expected question type: ${questionType}.` : "",
       "Read the screenshot carefully and answer the question.",
       'Return JSON only: {"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}'
     ].filter(Boolean).join("\n\n");
   }
+  function createBatchScreenshotPrompt(imageCount = 1) {
+    return [
+      imageCount > 1 ? "The images are consecutive, overlapping screenshots containing one or more quiz questions. Read them in image order as one continuous page." : "The image is a screenshot containing one or more quiz questions, options, and figures.",
+      "Read every question in visual order from top to bottom. Do not omit a question.",
+      'Return JSON only: {"items":[{"index":1,"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}]}',
+      "Use visible option labels for answers. Each item must correspond to exactly one question."
+    ].join("\n\n");
+  }
   async function requestAiAnswerFromScreenshot(config2, dataUrl, opts = {}) {
+    const imageUrls = Array.isArray(dataUrl) ? dataUrl : [dataUrl];
     const messages = [
       { role: "system", content: config2.systemPrompt },
       {
         role: "user",
         content: [
-          { type: "text", text: createScreenshotPrompt(opts.questionType) },
-          { type: "image_url", image_url: { url: dataUrl } }
+          { type: "text", text: createScreenshotPrompt(opts.questionType, imageUrls.length) },
+          ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } }))
         ]
       }
     ];
-    const raw = await runChatCompletion(config2, messages);
+    const raw = await runAiCompletion(config2, messages);
     const ctx = {
       question: "（截图识别）",
       options: [],
-      imageUrls: [dataUrl],
+      imageUrls,
       type: "unknown",
       fillTargets: []
     };
     return createAiSearchInformation(ctx, parseAiAnswerContent(raw));
+  }
+  async function requestAiAnswersFromScreenshot(config2, dataUrl) {
+    const imageUrls = Array.isArray(dataUrl) ? dataUrl : [dataUrl];
+    const messages = [
+      { role: "system", content: config2.systemPrompt },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: createBatchScreenshotPrompt(imageUrls.length) },
+          ...imageUrls.map((url) => ({ type: "image_url", image_url: { url } }))
+        ]
+      }
+    ];
+    const raw = await runAiCompletion(config2, messages);
+    const items = parseAiBatchAnswerContent(raw);
+    if (!items.length) {
+      throw new Error("未识别到多题 JSON 结果，请重试或改用单题截图识别。");
+    }
+    return items;
   }
   function dispatchChange(element) {
     var _a;
@@ -4661,7 +4782,8 @@ ${imagesText}` : "",
     loading: false,
     requestVersion: 0,
     items: [],
-    cache: /* @__PURE__ */ new Map()
+    cache: /* @__PURE__ */ new Map(),
+    longScreenshot: false
   };
   function getRulePath(cfg) {
     return cfg.useUrlRule ? cfg.urlRegionPath : cfg.hostnameRegionPath;
@@ -4679,6 +4801,7 @@ ${imagesText}` : "",
       baseURL: provider.baseURL,
       apiKey: provider.apiKey,
       model: provider.model,
+      apiMode: cfg.apiMode === "responses" ? "responses" : "chat_completions",
       temperature: Number(cfg.temperature || 0.2),
       timeout: Number(cfg.timeout || 60),
       systemPrompt: cfg.systemPrompt || DEFAULT_SYSTEM_PROMPT,
@@ -4964,7 +5087,7 @@ ${imagesText}` : "",
       var _a2;
       return lib.h("div", { style: { padding: "6px 0", borderTop: index ? "1px solid #e5e7eb" : "" } }, [
         lib.h("div", [lib.h("b", `题目 ${index + 1}：`), item.question.question || "等待识别"]),
-        renderScreenshotThumbs(item.question),
+        renderScreenshotThumbs(index === 0 ? item.question : void 0),
         lib.h("div", [
           lib.h("b", "选项："),
           item.question.options.length ? item.question.options.map((option) => `${option.label}. ${option.text}`).join("；") : "暂无"
@@ -4987,7 +5110,19 @@ ${imagesText}` : "",
     rectSelectButton.onclick = () => {
       startRectScreenshotPicker(async (rect) => {
         state$1.screenshotRect = rect;
+        state$1.longScreenshot = false;
         state$1.status = "已框选区域，开始截图…（请在弹窗中选择共享“此标签页”）";
+        renderPanel(panel, script2);
+        await captureAndAsk(script2, () => renderPanel(panel, script2));
+        renderPanel(panel, script2);
+      });
+    };
+    const longRectSelectButton = lib.$ui.button("拖拽框选长截图");
+    longRectSelectButton.onclick = () => {
+      startRectScreenshotPicker(async (rect) => {
+        state$1.screenshotRect = rect;
+        state$1.longScreenshot = true;
+        state$1.status = "已框选区域，开始滚动长截图…（请在弹窗中选择共享“此标签页”）";
         renderPanel(panel, script2);
         await captureAndAsk(script2, () => renderPanel(panel, script2));
         renderPanel(panel, script2);
@@ -5050,6 +5185,7 @@ ${imagesText}` : "",
       state$1.error = void 0;
       state$1.loading = false;
       state$1.screenshotRect = void 0;
+      state$1.longScreenshot = false;
       releaseCaptureStream();
       setRulePath(cfg, "");
       state$1.status = "已清空所选题目区域。";
@@ -5069,7 +5205,7 @@ ${imagesText}` : "",
       lib.$message.success({ content: "答案已复制。" });
     };
     const fillButton = lib.$ui.button("填入答案");
-    fillButton.disabled = !state$1.items.some((item) => item.answer) || cfg.mode !== "fill";
+    fillButton.disabled = !state$1.items.some((item) => item.answer && item.question.fillTargets.length) || cfg.mode !== "fill";
     fillButton.onclick = () => {
       var _a2;
       if (!state$1.items.length) {
@@ -5084,6 +5220,7 @@ ${imagesText}` : "",
     const actionButtons = [
       selectButton,
       rectSelectButton,
+      longRectSelectButton,
       recaptureButton,
       startButton,
       clearRegionButton,
@@ -5211,7 +5348,7 @@ ${imagesText}` : "",
     }
   }
   async function captureAndAsk(script2, onStateChange) {
-    var _a;
+    var _a, _b, _c;
     const cfg = script2.cfg;
     if (!state$1.screenshotRect) {
       return;
@@ -5228,9 +5365,16 @@ ${imagesText}` : "",
     state$1.loading = true;
     const requestVersion = ++state$1.requestVersion;
     onStateChange == null ? void 0 : onStateChange();
-    let dataUrl;
+    let dataUrls;
     try {
-      dataUrl = await captureViewportRect(state$1.screenshotRect);
+      const maxFrames = Math.max(1, Math.floor(Number(cfg.longScreenshotMaxFrames) || 6));
+      dataUrls = state$1.longScreenshot ? await captureLongViewportRect(state$1.screenshotRect, {
+        maxFrames,
+        onFrame: (count) => {
+          state$1.status = `长截图：已捕获 ${count}/${maxFrames} 屏`;
+          onStateChange == null ? void 0 : onStateChange();
+        }
+      }) : [await captureViewportRect(state$1.screenshotRect)];
     } catch (error) {
       if (state$1.requestVersion === requestVersion) {
         state$1.loading = false;
@@ -5243,9 +5387,9 @@ ${imagesText}` : "",
       return;
     }
     const question = {
-      question: "（截图识别）",
+      question: state$1.longScreenshot ? "（滚动长截图识别）" : "（截图识别）",
       options: [],
-      imageUrls: [dataUrl],
+      imageUrls: dataUrls,
       type: "unknown",
       fillTargets: []
     };
@@ -5256,14 +5400,33 @@ ${imagesText}` : "",
     state$1.answer = void 0;
     onStateChange == null ? void 0 : onStateChange();
     try {
-      const info = await requestAiAnswerFromScreenshot(createProviderConfig(cfg), dataUrl, {
-        questionType: cfg.questionMode === "multiple" ? "multiple" : "single"
-      });
-      if (state$1.requestVersion !== requestVersion) {
-        return;
+      if (isMultipleQuestionMode(cfg)) {
+        const answers = await requestAiAnswersFromScreenshot(createProviderConfig(cfg), dataUrls);
+        if (state$1.requestVersion !== requestVersion) {
+          return;
+        }
+        state$1.items = answers.map((answer, index) => ({
+          question: {
+            question: state$1.longScreenshot ? "（滚动长截图批量识别）" : "（截图批量识别）",
+            options: [],
+            imageUrls: dataUrls,
+            type: "unknown",
+            fillTargets: []
+          },
+          fingerprint: `screenshot-${answer.index || index + 1}`,
+          answer,
+          loading: false
+        }));
+        state$1.question = (_b = state$1.items[0]) == null ? void 0 : _b.question;
+        state$1.answer = (_c = state$1.items[0]) == null ? void 0 : _c.answer;
+      } else {
+        const info = await requestAiAnswerFromScreenshot(createProviderConfig(cfg), dataUrls, { questionType: "single" });
+        if (state$1.requestVersion !== requestVersion) {
+          return;
+        }
+        item.answer = createAnswerFromSearch(info);
+        state$1.answer = item.answer;
       }
-      item.answer = createAnswerFromSearch(info);
-      state$1.answer = item.answer;
     } catch (error) {
       if (state$1.requestVersion !== requestVersion) {
         return;
@@ -5387,10 +5550,24 @@ ${imagesText}` : "",
             ["both", "链接 + image_url"]
           ]
         },
+        apiMode: {
+          label: "API 接口",
+          tag: "select",
+          defaultValue: "chat_completions",
+          options: [
+            ["chat_completions", "Chat Completions (/v1/chat/completions)"],
+            ["responses", "Responses (/v1/responses)"]
+          ]
+        },
         streamResponse: {
           label: "流式响应",
           attrs: { type: "checkbox" },
           defaultValue: true
+        },
+        longScreenshotMaxFrames: {
+          label: "长截图最大屏数",
+          attrs: { type: "number", min: 1, max: 20, step: 1 },
+          defaultValue: 6
         },
         temperature: {
           label: "Temperature",
@@ -5426,6 +5603,7 @@ ${imagesText}` : "",
         const startPicker = () => {
           startRectScreenshotPicker(async (rect) => {
             state$1.screenshotRect = rect;
+            state$1.longScreenshot = false;
             rerender();
             await captureAndAsk(script2, rerender);
             rerender();
@@ -5629,11 +5807,13 @@ ${imagesText}` : "",
   exports2.StringUtils = StringUtils;
   exports2.answerExactMatch = answerExactMatch;
   exports2.answerSimilar = answerSimilar;
+  exports2.captureLongViewportRect = captureLongViewportRect;
   exports2.captureViewportRect = captureViewportRect;
   exports2.clearString = clearString;
   exports2.collectImageUrls = collectImageUrls;
   exports2.createAiAnswerAssistantScript = createAiAnswerAssistantScript;
   exports2.createAiChatMessages = createAiChatMessages;
+  exports2.createAiResponsesInput = createAiResponsesInput;
   exports2.createAiSearchInformation = createAiSearchInformation;
   exports2.createElementSelectorPath = createElementSelectorPath;
   exports2.createQuestionFingerprint = createQuestionFingerprint;
@@ -5645,8 +5825,11 @@ ${imagesText}` : "",
   exports2.fillAiAnswer = fillAiAnswer;
   exports2.isPlainAnswer = isPlainAnswer;
   exports2.normalizeChatCompletionsURL = normalizeChatCompletionsURL;
+  exports2.normalizeResponsesURL = normalizeResponsesURL;
   exports2.parseAiAnswerContent = parseAiAnswerContent;
+  exports2.parseAiBatchAnswerContent = parseAiBatchAnswerContent;
   exports2.parseOpenAIStreamContent = parseOpenAIStreamContent;
+  exports2.parseResponsesStreamContent = parseResponsesStreamContent;
   exports2.recognizeAiQuestion = recognizeAiQuestion;
   exports2.recognizeAiQuestions = recognizeAiQuestions;
   exports2.releaseCaptureStream = releaseCaptureStream;
@@ -5654,6 +5837,7 @@ ${imagesText}` : "",
   exports2.request = request;
   exports2.requestAiAnswer = requestAiAnswer;
   exports2.requestAiAnswerFromScreenshot = requestAiAnswerFromScreenshot;
+  exports2.requestAiAnswersFromScreenshot = requestAiAnswersFromScreenshot;
   exports2.resolveActiveQuestionElement = resolveActiveQuestionElement;
   exports2.resolveElementFromClientRect = resolveElementFromClientRect;
   exports2.resolveElementSelectorPath = resolveElementSelectorPath;

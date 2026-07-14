@@ -1,5 +1,5 @@
 import { request, SearchInformation } from '@ocsjs/core';
-import { AiProviderConfig, AiQuestionContext, ParsedAiAnswer } from './types';
+import { AiProviderConfig, AiQuestionContext, ParsedAiAnswer, ParsedAiBatchAnswerItem } from './types';
 
 type AiChatMessage = {
 	role: 'system' | 'user';
@@ -15,6 +15,19 @@ type AiChatMessage = {
 				  }
 		  >;
 };
+
+type AiResponsesInput = Array<{
+	role: 'user';
+	content:
+		| string
+		| Array<
+				| { type: 'input_text'; text: string }
+				| {
+						type: 'input_image';
+						image_url: string;
+				  }
+		  >;
+}>;
 
 export function parseAiAnswerContent(content: string): ParsedAiAnswer {
 	const trimmed = content.trim();
@@ -36,6 +49,38 @@ export function parseAiAnswerContent(content: string): ParsedAiAnswer {
 		answers: answer ? answer.split(/[#,，、\s]+/).filter(Boolean) : [],
 		explanation: (explanationMatch?.[1] || '').trim()
 	};
+}
+
+/** Parse the strict {"items":[...]} response used for a screenshot containing several questions. */
+export function parseAiBatchAnswerContent(content: string): ParsedAiBatchAnswerItem[] {
+	for (const candidate of createJsonCandidates(content.trim())) {
+		try {
+			const parsed = JSON.parse(candidate);
+			if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.items)) {
+				continue;
+			}
+			return parsed.items
+				.filter((item: unknown) => item && typeof item === 'object')
+				.map((item: any, position: number) => {
+					const answers = Array.isArray(item.answers)
+						? item.answers.map(String).filter(Boolean)
+						: item.answer
+						? [String(item.answer)]
+						: [];
+					const index = Number(item.index);
+					return {
+						index: Number.isInteger(index) && index > 0 ? index : position + 1,
+						answer: String(item.answer || answers.join('#')),
+						answers,
+						explanation: String(item.explanation || ''),
+						confidence: typeof item.confidence === 'number' ? item.confidence : undefined
+					};
+				});
+		} catch (error) {
+			// Try the next JSON candidate, including a fenced response.
+		}
+	}
+	return [];
 }
 
 function parseAiAnswerJson(content: string): ParsedAiAnswer | undefined {
@@ -183,12 +228,17 @@ export function createAiSearchInformation(ctx: AiQuestionContext, parsed: Parsed
 	};
 }
 
-export function normalizeChatCompletionsURL(baseURL: string) {
+function normalizeOpenAIURL(baseURL: string, endpoint: 'chat/completions' | 'responses') {
 	const trimmed = baseURL.trim().replace(/\/+$/, '');
-	if (trimmed.endsWith('/chat/completions')) {
-		return trimmed;
-	}
-	return `${trimmed}/chat/completions`;
+	return `${trimmed.replace(/\/(?:chat\/completions|responses)$/, '')}/${endpoint}`;
+}
+
+export function normalizeChatCompletionsURL(baseURL: string) {
+	return normalizeOpenAIURL(baseURL, 'chat/completions');
+}
+
+export function normalizeResponsesURL(baseURL: string) {
+	return normalizeOpenAIURL(baseURL, 'responses');
 }
 
 export function parseOpenAIStreamContent(content: string) {
@@ -202,6 +252,25 @@ export function parseOpenAIStreamContent(content: string) {
 			try {
 				const parsed = JSON.parse(line);
 				return parsed?.choices?.[0]?.delta?.content || parsed?.choices?.[0]?.message?.content || '';
+			} catch (error) {
+				return '';
+			}
+		})
+		.join('');
+}
+
+/** Extract text from a Responses API stream (response.output_text.delta events). */
+export function parseResponsesStreamContent(content: string) {
+	return content
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line.startsWith('data:'))
+		.map((line) => line.replace(/^data:\s*/, ''))
+		.filter((line) => line && line !== '[DONE]')
+		.map((line) => {
+			try {
+				const parsed = JSON.parse(line);
+				return parsed?.type === 'response.output_text.delta' ? parsed.delta || '' : '';
 			} catch (error) {
 				return '';
 			}
@@ -244,6 +313,22 @@ export function createAiChatMessages(
 	];
 }
 
+export function createAiResponsesInput(messages: AiChatMessage[]): AiResponsesInput {
+	return messages
+		.filter((message) => message.role === 'user')
+		.map((message) => ({
+			role: 'user' as const,
+			content:
+				typeof message.content === 'string'
+					? message.content
+					: message.content.map((part) =>
+							part.type === 'text'
+								? { type: 'input_text' as const, text: part.text }
+								: { type: 'input_image' as const, image_url: part.image_url.url }
+						)
+		}));
+}
+
 function extractChatContent(raw: any, stream: boolean): string {
 	if (stream) {
 		// 流式：GM_xmlhttpRequest onload 给的是完整 SSE 文本，整体解析
@@ -253,11 +338,40 @@ function extractChatContent(raw: any, stream: boolean): string {
 	return raw?.choices?.[0]?.message?.content || raw?.choices?.[0]?.text || '';
 }
 
-async function runChatCompletion(config: AiProviderConfig, messages: AiChatMessage[]) {
+function extractResponsesContent(raw: any, stream: boolean): string {
+	if (stream) {
+		return parseResponsesStreamContent(typeof raw === 'string' ? raw : String(raw ?? ''));
+	}
+	if (typeof raw?.output_text === 'string') {
+		return raw.output_text;
+	}
+	return (raw?.output || [])
+		.flatMap((item: any) => item?.content || [])
+		.filter((part: any) => part?.type === 'output_text')
+		.map((part: any) => part.text || '')
+		.join('');
+}
+
+async function runAiCompletion(config: AiProviderConfig, messages: AiChatMessage[]) {
 	// 直接用 core 的 request（GM_xmlhttpRequest），不走 defaultAnswerWrapperHandler，
 	// 避免请求体里的 ${...} 被当作占位符替换成 "undefined"（题目含 ${ 时会被破坏）。
-	const url = normalizeChatCompletionsURL(config.baseURL);
+	const isResponses = config.apiMode === 'responses';
+	const url = isResponses ? normalizeResponsesURL(config.baseURL) : normalizeChatCompletionsURL(config.baseURL);
 	const timeoutMs = Math.max(5, Number(config.timeout) || 60) * 1000;
+	const data = isResponses
+		? {
+				model: config.model,
+				temperature: config.temperature,
+				stream: config.streamResponse,
+				instructions: config.systemPrompt,
+				input: createAiResponsesInput(messages)
+		  }
+		: {
+				model: config.model,
+				temperature: config.temperature,
+				stream: config.streamResponse,
+				messages
+		  };
 
 	const responsePromise = request(url, {
 		type: 'GM_xmlhttpRequest',
@@ -267,12 +381,7 @@ async function runChatCompletion(config: AiProviderConfig, messages: AiChatMessa
 			Authorization: `Bearer ${config.apiKey}`,
 			'Content-Type': 'application/json'
 		},
-		data: {
-			model: config.model,
-			temperature: config.temperature,
-			stream: config.streamResponse,
-			messages
-		}
+		data
 	});
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -282,7 +391,9 @@ async function runChatCompletion(config: AiProviderConfig, messages: AiChatMessa
 
 	try {
 		const raw = await Promise.race([responsePromise, timeoutPromise]);
-		return extractChatContent(raw, config.streamResponse);
+		return isResponses
+			? extractResponsesContent(raw, config.streamResponse)
+			: extractChatContent(raw, config.streamResponse);
 	} catch (error) {
 		// request 在非 200 时会以 responseText（字符串）reject，统一包成 Error
 		throw error instanceof Error ? error : new Error(String(error));
@@ -294,13 +405,15 @@ async function runChatCompletion(config: AiProviderConfig, messages: AiChatMessa
 }
 
 export async function requestAiAnswer(config: AiProviderConfig, ctx: AiQuestionContext) {
-	const raw = await runChatCompletion(config, createAiChatMessages(config, ctx));
+	const raw = await runAiCompletion(config, createAiChatMessages(config, ctx));
 	return createAiSearchInformation(ctx, parseAiAnswerContent(raw));
 }
 
-function createScreenshotPrompt(questionType?: string) {
+function createScreenshotPrompt(questionType?: string, imageCount = 1) {
 	return [
-		'The image is a screenshot of a quiz question (it may contain the question text, options, and figures).',
+		imageCount > 1
+			? 'The images are consecutive, overlapping screenshots of one quiz question. Read them in image order as one continuous question.'
+			: 'The image is a screenshot of a quiz question (it may contain the question text, options, and figures).',
 		questionType ? `Expected question type: ${questionType}.` : '',
 		'Read the screenshot carefully and answer the question.',
 		'Return JSON only: {"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}'
@@ -309,31 +422,66 @@ function createScreenshotPrompt(questionType?: string) {
 		.join('\n\n');
 }
 
+function createBatchScreenshotPrompt(imageCount = 1) {
+	return [
+		imageCount > 1
+			? 'The images are consecutive, overlapping screenshots containing one or more quiz questions. Read them in image order as one continuous page.'
+			: 'The image is a screenshot containing one or more quiz questions, options, and figures.',
+		'Read every question in visual order from top to bottom. Do not omit a question.',
+		'Return JSON only: {"items":[{"index":1,"answer":"A","answers":["A"],"explanation":"short explanation","confidence":0.8}]}',
+		'Use visible option labels for answers. Each item must correspond to exactly one question.'
+	].join('\n\n');
+}
+
 /**
  * 截图模式：把框选区域的截图（dataURL）作为图片发给多模态模型解答，不依赖 DOM 文本。
  */
 export async function requestAiAnswerFromScreenshot(
 	config: AiProviderConfig,
-	dataUrl: string,
+	dataUrl: string | string[],
 	opts: { questionType?: string } = {}
 ) {
+	const imageUrls = Array.isArray(dataUrl) ? dataUrl : [dataUrl];
 	const messages: AiChatMessage[] = [
 		{ role: 'system', content: config.systemPrompt },
 		{
 			role: 'user',
 			content: [
-				{ type: 'text', text: createScreenshotPrompt(opts.questionType) },
-				{ type: 'image_url', image_url: { url: dataUrl } }
+				{ type: 'text', text: createScreenshotPrompt(opts.questionType, imageUrls.length) },
+				...imageUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))
 			]
 		}
 	];
-	const raw = await runChatCompletion(config, messages);
+	const raw = await runAiCompletion(config, messages);
 	const ctx: AiQuestionContext = {
 		question: '（截图识别）',
 		options: [],
-		imageUrls: [dataUrl],
+		imageUrls,
 		type: 'unknown',
 		fillTargets: []
 	};
 	return createAiSearchInformation(ctx, parseAiAnswerContent(raw));
+}
+
+/**
+ * Screenshot batch mode only displays answers: screenshot pixels cannot be reliably mapped back to page controls for auto-fill.
+ */
+export async function requestAiAnswersFromScreenshot(config: AiProviderConfig, dataUrl: string | string[]) {
+	const imageUrls = Array.isArray(dataUrl) ? dataUrl : [dataUrl];
+	const messages: AiChatMessage[] = [
+		{ role: 'system', content: config.systemPrompt },
+		{
+			role: 'user',
+			content: [
+				{ type: 'text', text: createBatchScreenshotPrompt(imageUrls.length) },
+				...imageUrls.map((url) => ({ type: 'image_url' as const, image_url: { url } }))
+			]
+		}
+	];
+	const raw = await runAiCompletion(config, messages);
+	const items = parseAiBatchAnswerContent(raw);
+	if (!items.length) {
+		throw new Error('未识别到多题 JSON 结果，请重试或改用单题截图识别。');
+	}
+	return items;
 }

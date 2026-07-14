@@ -57,6 +57,14 @@ const fallback = OCS.parseAiAnswerContent('答案：A\n解析：选择第一项'
 assert.deepStrictEqual(fallback.answers, ['A']);
 assert.strictEqual(fallback.explanation, '选择第一项');
 
+const batchAnswers = OCS.parseAiBatchAnswerContent(
+	'```json\n{"items":[{"index":1,"answer":"A","answers":["A"],"explanation":"first"},{"index":2,"answers":["B","C"],"explanation":"second"}]}\n```'
+);
+assert.strictEqual(batchAnswers.length, 2);
+assert.strictEqual(batchAnswers[0].answer, 'A');
+assert.deepStrictEqual(batchAnswers[1].answers, ['B', 'C']);
+assert.strictEqual(batchAnswers[1].answer, 'B#C');
+
 const streamContent = OCS.parseOpenAIStreamContent(
 	[
 		'data: {"choices":[{"delta":{"content":"{\\"answer\\""}}]}',
@@ -65,6 +73,19 @@ const streamContent = OCS.parseOpenAIStreamContent(
 	].join('\n\n')
 );
 assert.strictEqual(streamContent, '{"answer" : "B"}');
+
+assert.strictEqual(OCS.normalizeChatCompletionsURL('https://api.example.com/v1/responses'), 'https://api.example.com/v1/chat/completions');
+assert.strictEqual(OCS.normalizeResponsesURL('https://api.example.com/v1/chat/completions'), 'https://api.example.com/v1/responses');
+assert.strictEqual(
+	OCS.parseResponsesStreamContent(
+		[
+			'data: {"type":"response.output_text.delta","delta":"{\\"answer\\""}',
+			'data: {"type":"response.output_text.delta","delta":" : \\"B\\"}"}',
+			'data: [DONE]'
+		].join('\n\n')
+	),
+	'{"answer" : "B"}'
+);
 
 const info = OCS.createAiSearchInformation(
 	{
@@ -351,6 +372,13 @@ assert.strictEqual(Array.isArray(visionMessages[1].content), true);
 assert.strictEqual(visionMessages[1].content[0].type, 'text');
 assert.strictEqual(visionMessages[1].content[1].type, 'image_url');
 assert.strictEqual(visionMessages[1].content[1].image_url.url, 'http://localhost/question.png');
+
+const responsesInput = OCS.createAiResponsesInput(visionMessages);
+assert.strictEqual(responsesInput.length, 1);
+assert.strictEqual(responsesInput[0].role, 'user');
+assert.strictEqual(responsesInput[0].content[0].type, 'input_text');
+assert.strictEqual(responsesInput[0].content[1].type, 'input_image');
+assert.strictEqual(responsesInput[0].content[1].image_url, 'http://localhost/question.png');
 
 const fillResult = OCS.fillAiAnswer(recognized, { answer: 'B', answers: ['B'], explanation: '' });
 assert.strictEqual(fillResult.ok, true);
