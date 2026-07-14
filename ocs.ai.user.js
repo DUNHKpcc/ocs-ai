@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name       				DPCC-OCS-AI
-// @version    				1.0.5
+// @version    				1.0.6
 // @description				OCS AI answer assistant for arbitrary websites with manual region selection.
 // @author     				enncy
 // @license    				MIT
