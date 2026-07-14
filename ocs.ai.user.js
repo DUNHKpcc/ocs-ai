@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name       				DPCC-OCS-AI
-// @version    				1.0.7
+// @version    				1.0.8
 // @description				OCS AI answer assistant for arbitrary websites with manual region selection.
 // @author     				enncy
 // @license    				MIT
@@ -3806,7 +3806,9 @@ ${imagesText}` : "",
       responseType: config2.streamResponse ? "text" : "json",
       headers: {
         Authorization: `Bearer ${config2.apiKey}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        Pragma: "no-cache"
       },
       data
     });
@@ -4838,12 +4840,14 @@ ${imagesText}` : "",
       if (!dragging) {
         return;
       }
-      const edgeSize = Math.min(96, Math.max(48, window.innerHeight * 0.12));
+      const edgeSize = Math.min(140, Math.max(72, window.innerHeight * 0.16));
       let delta = 0;
       if (lastClientY > window.innerHeight - edgeSize) {
-        delta = Math.ceil(4 + (lastClientY - (window.innerHeight - edgeSize)) / edgeSize * 20);
+        const proximity = (lastClientY - (window.innerHeight - edgeSize)) / edgeSize;
+        delta = Math.ceil(6 + proximity * proximity * 58);
       } else if (lastClientY < edgeSize) {
-        delta = -Math.ceil(4 + (edgeSize - lastClientY) / edgeSize * 20);
+        const proximity = (edgeSize - lastClientY) / edgeSize;
+        delta = -Math.ceil(6 + proximity * proximity * 58);
       }
       if (delta) {
         const before = window.scrollY;
@@ -4993,6 +4997,20 @@ ${imagesText}` : "",
     cache: /* @__PURE__ */ new Map(),
     longScreenshot: false
   };
+  function releaseScreenshotDataUrls(keepLongOverview = false) {
+    const questions = /* @__PURE__ */ new Set();
+    if (state$1.question) {
+      questions.add(state$1.question);
+    }
+    for (const item of state$1.items) {
+      questions.add(item.question);
+    }
+    for (const question of questions) {
+      const persistentUrls = question.imageUrls.filter((url) => !url.startsWith("data:"));
+      const screenshotUrls = question.imageUrls.filter((url) => url.startsWith("data:"));
+      question.imageUrls = keepLongOverview && screenshotUrls.length ? [...persistentUrls, screenshotUrls[0]] : persistentUrls;
+    }
+  }
   function getRulePath(cfg) {
     return cfg.useUrlRule ? cfg.urlRegionPath : cfg.hostnameRegionPath;
   }
@@ -5035,6 +5053,71 @@ ${imagesText}` : "",
   }
   function answerLabel(answer) {
     return (answer == null ? void 0 : answer.answers.length) ? answer.answers.join("、") : (answer == null ? void 0 : answer.answer) || "";
+  }
+  function openScreenshotPreview(url) {
+    var _a;
+    (_a = document.querySelector(".ocs-ai-screenshot-preview")) == null ? void 0 : _a.remove();
+    const overlay = lib.h("div", {
+      className: "ocs-ai-screenshot-preview",
+      style: {
+        position: "fixed",
+        inset: "0",
+        zIndex: "2147483647",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+        boxSizing: "border-box",
+        background: "rgba(0, 0, 0, 0.82)",
+        cursor: "zoom-out"
+      }
+    });
+    const image = lib.h("img", {
+      src: url,
+      style: {
+        maxWidth: "100%",
+        maxHeight: "100%",
+        objectFit: "contain",
+        boxShadow: "0 12px 40px rgba(0, 0, 0, 0.45)",
+        cursor: "default"
+      }
+    });
+    const closeButton = lib.h("button", {
+      type: "button",
+      title: "关闭",
+      style: {
+        position: "fixed",
+        top: "14px",
+        right: "18px",
+        width: "40px",
+        height: "40px",
+        border: "0",
+        background: "transparent",
+        color: "#fff",
+        fontSize: "32px",
+        lineHeight: "40px",
+        cursor: "pointer"
+      }
+    }, "×");
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    closeButton.setAttribute("aria-label", "关闭截图预览");
+    const close = () => {
+      document.removeEventListener("keydown", onKeydown, true);
+      overlay.remove();
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") {
+        close();
+      }
+    };
+    image.onclick = (event) => event.stopPropagation();
+    overlay.onclick = close;
+    closeButton.onclick = close;
+    overlay.append(image, closeButton);
+    document.addEventListener("keydown", onKeydown, true);
+    document.documentElement.append(overlay);
+    closeButton.focus();
   }
   function applyPanelLayout(panel) {
     Object.assign(panel.style, {
@@ -5270,20 +5353,24 @@ ${imagesText}` : "",
       if (!shots.length) {
         return "";
       }
+      const visibleShots = (question == null ? void 0 : question.question.includes("长截图")) ? shots.slice(0, 1) : shots;
       return lib.h("div", { style: { margin: "4px 0" } }, [
         lib.h("b", "截图："),
         lib.h(
           "div",
           { style: { marginTop: "4px" } },
-          shots.map(
+          visibleShots.map(
             (url) => lib.h("img", {
               src: url,
+              title: "点击放大",
+              onclick: () => openScreenshotPreview(url),
               style: {
                 maxWidth: "100%",
                 maxHeight: "180px",
                 border: "1px solid #e5e7eb",
                 borderRadius: "4px",
                 display: "block",
+                cursor: "zoom-in",
                 marginTop: "4px"
               }
             })
@@ -5569,6 +5656,7 @@ ${imagesText}` : "",
     }
     (_a = state$1.observer) == null ? void 0 : _a.disconnect();
     state$1.observer = void 0;
+    releaseScreenshotDataUrls();
     state$1.error = void 0;
     state$1.loading = true;
     const requestVersion = ++state$1.requestVersion;
@@ -5595,7 +5683,7 @@ ${imagesText}` : "",
     const question = {
       question: state$1.longScreenshot ? "（滚动长截图识别）" : "（截图识别）",
       options: [],
-      imageUrls: dataUrls,
+      imageUrls: [...dataUrls],
       type: "unknown",
       fillTargets: []
     };
@@ -5615,7 +5703,7 @@ ${imagesText}` : "",
           question: {
             question: answer.question || (state$1.longScreenshot ? "（滚动长截图批量识别）" : "（截图批量识别）"),
             options: [],
-            imageUrls: dataUrls,
+            imageUrls: [...dataUrls],
             type: "unknown",
             fillTargets: []
           },
@@ -5643,7 +5731,9 @@ ${imagesText}` : "",
       if (state$1.requestVersion === requestVersion) {
         item.loading = false;
         state$1.loading = false;
+        releaseScreenshotDataUrls(state$1.longScreenshot);
       }
+      dataUrls.length = 0;
     }
     onStateChange == null ? void 0 : onStateChange();
   }
@@ -5794,6 +5884,14 @@ ${imagesText}` : "",
           return;
         }
         window.__ocsAiHotkeyBound = true;
+        window.addEventListener(
+          "pagehide",
+          () => {
+            releaseScreenshotDataUrls();
+            releaseCaptureStream();
+          },
+          { once: true }
+        );
         const script2 = this;
         const rerender = () => {
           const panel = script2.panel;

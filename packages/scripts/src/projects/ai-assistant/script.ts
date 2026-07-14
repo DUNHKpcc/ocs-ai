@@ -177,6 +177,23 @@ const state: {
 	longScreenshot: false
 };
 
+/** Screenshot data URLs are session-memory only and are released as soon as their request finishes. */
+function releaseScreenshotDataUrls(keepLongOverview = false) {
+	const questions = new Set<AiQuestionContext>();
+	if (state.question) {
+		questions.add(state.question);
+	}
+	for (const item of state.items) {
+		questions.add(item.question);
+	}
+	for (const question of questions) {
+		const persistentUrls = question.imageUrls.filter((url) => !url.startsWith('data:'));
+		const screenshotUrls = question.imageUrls.filter((url) => url.startsWith('data:'));
+		question.imageUrls =
+			keepLongOverview && screenshotUrls.length ? [...persistentUrls, screenshotUrls[0]] : persistentUrls;
+	}
+}
+
 function getRulePath(cfg: any) {
 	return cfg.useUrlRule ? cfg.urlRegionPath : cfg.hostnameRegionPath;
 }
@@ -225,6 +242,71 @@ function createAnswerFromSearch(info: ReturnType<typeof createAiSearchInformatio
 
 function answerLabel(answer?: ParsedAiAnswer) {
 	return answer?.answers.length ? answer.answers.join('、') : answer?.answer || '';
+}
+
+function openScreenshotPreview(url: string) {
+	document.querySelector('.ocs-ai-screenshot-preview')?.remove();
+	const overlay = h('div', {
+		className: 'ocs-ai-screenshot-preview',
+		style: {
+			position: 'fixed',
+			inset: '0',
+			zIndex: '2147483647',
+			display: 'flex',
+			alignItems: 'center',
+			justifyContent: 'center',
+			padding: '24px',
+			boxSizing: 'border-box',
+			background: 'rgba(0, 0, 0, 0.82)',
+			cursor: 'zoom-out'
+		}
+	}) as HTMLElement;
+	const image = h('img', {
+		src: url,
+		style: {
+			maxWidth: '100%',
+			maxHeight: '100%',
+			objectFit: 'contain',
+			boxShadow: '0 12px 40px rgba(0, 0, 0, 0.45)',
+			cursor: 'default'
+		}
+	}) as HTMLImageElement;
+	const closeButton = h('button', {
+		type: 'button',
+		title: '关闭',
+		style: {
+			position: 'fixed',
+			top: '14px',
+			right: '18px',
+			width: '40px',
+			height: '40px',
+			border: '0',
+			background: 'transparent',
+			color: '#fff',
+			fontSize: '32px',
+			lineHeight: '40px',
+			cursor: 'pointer'
+		}
+	}, '×') as HTMLButtonElement;
+	overlay.setAttribute('role', 'dialog');
+	overlay.setAttribute('aria-modal', 'true');
+	closeButton.setAttribute('aria-label', '关闭截图预览');
+	const close = () => {
+		document.removeEventListener('keydown', onKeydown, true);
+		overlay.remove();
+	};
+	const onKeydown = (event: KeyboardEvent) => {
+		if (event.key === 'Escape') {
+			close();
+		}
+	};
+	image.onclick = (event) => event.stopPropagation();
+	overlay.onclick = close;
+	closeButton.onclick = close;
+	overlay.append(image, closeButton);
+	document.addEventListener('keydown', onKeydown, true);
+	document.documentElement.append(overlay);
+	closeButton.focus();
 }
 
 function applyPanelLayout(panel: any) {
@@ -510,20 +592,24 @@ function renderPanel(panel: any, script: Script) {
 		if (!shots.length) {
 			return '';
 		}
+		const visibleShots = question?.question.includes('长截图') ? shots.slice(0, 1) : shots;
 		return h('div', { style: { margin: '4px 0' } }, [
 			h('b', '截图：'),
 			h(
 				'div',
 				{ style: { marginTop: '4px' } },
-				shots.map((url) =>
+				visibleShots.map((url) =>
 					h('img', {
 						src: url,
+						title: '点击放大',
+						onclick: () => openScreenshotPreview(url),
 						style: {
 							maxWidth: '100%',
 							maxHeight: '180px',
 							border: '1px solid #e5e7eb',
 							borderRadius: '4px',
 							display: 'block',
+							cursor: 'zoom-in',
 							marginTop: '4px'
 						}
 					})
@@ -822,6 +908,7 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 	// 截图模式与 DOM 监听互斥，停止可能存在的 observer
 	state.observer?.disconnect();
 	state.observer = undefined;
+	releaseScreenshotDataUrls();
 	state.error = undefined;
 	state.loading = true;
 	const requestVersion = ++state.requestVersion;
@@ -852,7 +939,7 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 	const question: AiQuestionContext = {
 		question: state.longScreenshot ? '（滚动长截图识别）' : '（截图识别）',
 		options: [],
-		imageUrls: dataUrls,
+		imageUrls: [...dataUrls],
 		type: 'unknown',
 		fillTargets: []
 	};
@@ -874,7 +961,7 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 					question:
 						answer.question || (state.longScreenshot ? '（滚动长截图批量识别）' : '（截图批量识别）'),
 					options: [],
-					imageUrls: dataUrls,
+					imageUrls: [...dataUrls],
 					type: 'unknown',
 					fillTargets: []
 				},
@@ -902,7 +989,9 @@ async function captureAndAsk(script: Script, onStateChange?: () => void) {
 		if (state.requestVersion === requestVersion) {
 			item.loading = false;
 			state.loading = false;
+			releaseScreenshotDataUrls(state.longScreenshot);
 		}
+		dataUrls.length = 0;
 	}
 	onStateChange?.();
 }
@@ -1066,6 +1155,14 @@ export function createAiAnswerAssistantScript() {
 				return;
 			}
 			(window as any).__ocsAiHotkeyBound = true;
+			window.addEventListener(
+				'pagehide',
+				() => {
+					releaseScreenshotDataUrls();
+					releaseCaptureStream();
+				},
+				{ once: true }
+			);
 			const script = this as unknown as Script;
 			const rerender = () => {
 				const panel = (script as any).panel;

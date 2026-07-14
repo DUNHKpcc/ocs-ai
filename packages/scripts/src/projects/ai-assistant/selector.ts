@@ -422,12 +422,14 @@ export function startLongScreenshotPicker(onSelect: (rect: LongScreenshotRect) =
 		if (!dragging) {
 			return;
 		}
-		const edgeSize = Math.min(96, Math.max(48, window.innerHeight * 0.12));
+		const edgeSize = Math.min(140, Math.max(72, window.innerHeight * 0.16));
 		let delta = 0;
 		if (lastClientY > window.innerHeight - edgeSize) {
-			delta = Math.ceil(4 + ((lastClientY - (window.innerHeight - edgeSize)) / edgeSize) * 20);
+			const proximity = (lastClientY - (window.innerHeight - edgeSize)) / edgeSize;
+			delta = Math.ceil(6 + proximity * proximity * 58);
 		} else if (lastClientY < edgeSize) {
-			delta = -Math.ceil(4 + ((edgeSize - lastClientY) / edgeSize) * 20);
+			const proximity = (edgeSize - lastClientY) / edgeSize;
+			delta = -Math.ceil(6 + proximity * proximity * 58);
 		}
 		if (delta) {
 			const before = window.scrollY;

@@ -380,7 +380,9 @@ async function runAiCompletion(config: AiProviderConfig, messages: AiChatMessage
 		responseType: config.streamResponse ? 'text' : 'json',
 		headers: {
 			Authorization: `Bearer ${config.apiKey}`,
-			'Content-Type': 'application/json'
+			'Content-Type': 'application/json',
+			'Cache-Control': 'no-store',
+			Pragma: 'no-cache'
 		},
 		data
 	});
